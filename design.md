@@ -31,39 +31,78 @@ fn add(x, y)
 end
 ```
 
-## Types
+## Nil removal
+Now you need to use the Option(t) type 
+
+
+## Type annotations
 By default Eira is type inferred but you can also statically type things
 ```lua
 type Person = {
-    age: number = 2 -- defeaulted to 2
-    name: string = "" -- defaulted to ""
+    age: Number = 2, -- defeaulted to 2
+    name: String = "", -- defaulted to ""
 }
 ```
 
 To add methods:
 ```lua
 type Dog = {
-    name: string = ""
+    name: String = "",
+} with
+    fn speak(self)
 
-    fn bark() {
-        print("${self.name} BARK!!!")
-    }
+    end
+end
+```
+
+Vararg types:
+
+Since lua tables are just maps I decided to add vararg types in those tables
+```lua
+type Tuple(a) = {
+    ...Number = a
+} 
+
+-- examples
+tuple.1
+tuple.2
+
+type List(a) = {
+    ...[Number] = a
 }
+
+-- examples
+list[1]
+list[2]
+list[3]
+
+type Map(k, v) = {
+    ...[k] = v
+}
+
+map["whatever"]
+map["yo"]
+
+type SomeOpenRecord(a) = {
+    ...
+}
+
+
 ```
 
 Interfaces:
 ```lua
-trait Speakable = {
+trait Speakable with
     fn speak(self)
-}
+end
 
-local Dog := {
-    name: String = "" 
-} with Speakable {
-    fn speak(self) {
+type Dog = {
+    name: String = "",
+} with Speakable
+    fn speak(self)
         print("woof")
-    }
-} with Meta {
+    end
+and Meta
     fn toString(self) {
         return self.name
     }
@@ -71,5 +110,19 @@ local Dog := {
     fn eq(a, b) {
         return a.name == b.name
     }
-}
+end
+
+
+trait GameObject with
+    fn get_position() -> {Number, Number, Number}
+end
+
+type Player = {
+    position: {Number, Number, Number} = {0, 0, 0}
+
+} with GameObject
+    fn get_position() -> {Number, Number, Number} 
+        return self.position
+    end
+end
 ```
