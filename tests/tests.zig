@@ -26,3 +26,21 @@ test "Hello World" {
 
     defer free_lua(result);
 }
+
+test "Coroutines" {
+    const result = try run_lua("tests/coroutines.lua");
+
+    defer free_lua(result);
+}
+
+test "Loops" {
+    const result = try run_lua("tests/loops.lua");
+
+    defer free_lua(result);
+}
+
+test "All Syntax" {
+    const result = try run_lua("tests/all_syntax.lua");
+
+    defer free_lua(result);
+}
