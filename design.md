@@ -126,16 +126,16 @@ type Shape = [
         a: Number,
         b: Number,
     } 
-    or 
+    or
     Circle = {
         radius: Number,
     }
 ] with 
     fn area(self) -> Number 
         match self with
-            Rectangle(rect) => 
+            Rectangle(rect) do
                 return rect.a * rect.b
-            or Circle(circle) => 
+            or Circle(circle) do
                 return circle.radius
             end
         end
@@ -210,9 +210,11 @@ end
 ```
 
 ## Traits
+```lua
 fn to_string_caller(thing: a)
 where a has {
     to_string: fn(a) -> String
 }
     print(thing.to_string())
 end
+```
