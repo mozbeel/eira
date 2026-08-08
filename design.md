@@ -59,8 +59,8 @@ Vararg types:
 
 Since lua tables are just maps I decided to add vararg types in those tables
 ```lua
-type Tuple(a) = {
-    ...Number = a
+type Tuple = {
+    ...
 } 
 
 -- examples
@@ -126,3 +126,34 @@ type Player = {
     end
 end
 ```
+
+Unions:
+```lua
+type Shape = [
+    Rectangle = {
+        a: Number,
+        b: Number,
+    } 
+    or 
+    Circle = {
+        radius: Number,
+    }
+] with 
+    fn area(self) -> Number 
+        match self with
+            Rectangle(rect) => 
+                return rect.a * rect.b
+            and Circle(circle) => 
+                return circle.radius
+            end
+        end
+    end
+end
+```
+
+## Type inference
+Structural typing, types can widen:
+```lua
+local list = { 1, 2, 3 } -- intially starts as { Number, Number, Number } aka. { 1: Number, 2: Number, 3: Number }
+
+local
