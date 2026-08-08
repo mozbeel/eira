@@ -59,14 +59,6 @@ Vararg types:
 
 Since lua tables are just maps I decided to add vararg types in those tables
 ```lua
-type Tuple = {
-    ...
-} 
-
--- examples
-tuple.1
-tuple.2
-
 type List(a) = {
     ...[Number] = a
 }
@@ -152,8 +144,35 @@ end
 ```
 
 ## Type inference
-Structural typing, types can widen:
+Structural typing:
 ```lua
-local list = { 1, 2, 3 } -- intially starts as { Number, Number, Number } aka. { 1: Number, 2: Number, 3: Number }
+local list = { 1, 2, 3 } -- List(Number)
 
-local
+```
+
+## Lists
+```lua
+local list = { 1, 2, 3 }
+
+-- public type
+global type Vec3 = {
+    local x: Number, -- explicit private field, by default 
+    local y: Number,
+    local z: Number,
+} with 
+    global fn new(values: List(Number, 3)) -> self
+        Vec3 {
+            x = values[1]
+            y = values[2]
+            z = values[3] 
+        }
+    end
+end
+
+Vec3.new { 0, 0, 0 } -- call without parentheses
+
+-- Actual type:
+global type List(a, size: Number) = {
+    ...[0..size of Number] = a 
+}
+```
