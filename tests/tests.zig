@@ -44,3 +44,9 @@ test "All Syntax" {
 
     defer free_lua(result);
 }
+
+test "Eira Functions" {
+    const result = try run_lua("tests/eira/functions.lua");
+
+    defer free_lua(result);
+}

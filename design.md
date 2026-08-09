@@ -154,9 +154,9 @@ local list = { 1, 2, 3 } -- List(Number)
 ```lua
 local list = { 1, 2, 3 }
 
--- public type
+
 type Vec3 = {
-    x: Number, -- explicit private field, by default 
+    x: Number, 
     y: Number,
     z: Number,
 
