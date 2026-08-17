@@ -27,6 +27,8 @@
 #define PI	(l_mathop(3.141592653589793238462643383279502884))
 
 
+// AI: Implements math.abs; the integer path negates through an unsigned
+// AI: type so LUA_MININTEGER does not overflow.
 static int math_abs (lua_State *L) {
   if (lua_isinteger(L, 1)) {
     lua_Integer n = lua_tointeger(L, 1);
@@ -39,36 +41,43 @@ static int math_abs (lua_State *L) {
 }
 
 
+// AI: Implements math.sin(x): pushes the sine of its numeric argument.
 static int math_sin (lua_State *L) {
   lua_pushnumber(L, l_mathop(sin)(luaL_checknumber(L, 1)));
   return 1;
 }
 
 
+// AI: Implements math.cos(x): pushes the cosine of its numeric argument.
 static int math_cos (lua_State *L) {
   lua_pushnumber(L, l_mathop(cos)(luaL_checknumber(L, 1)));
   return 1;
 }
 
 
+// AI: Implements math.tan(x): pushes the tangent of its numeric argument.
 static int math_tan (lua_State *L) {
   lua_pushnumber(L, l_mathop(tan)(luaL_checknumber(L, 1)));
   return 1;
 }
 
 
+// AI: Implements math.asin(x): pushes the arc sine of its numeric argument.
 static int math_asin (lua_State *L) {
   lua_pushnumber(L, l_mathop(asin)(luaL_checknumber(L, 1)));
   return 1;
 }
 
 
+// AI: Implements math.acos(x): pushes the arc cosine of its numeric argument.
 static int math_acos (lua_State *L) {
   lua_pushnumber(L, l_mathop(acos)(luaL_checknumber(L, 1)));
   return 1;
 }
 
 
+// AI: Implements math.atan(y [, x]): the two-argument form uses atan2(y, x),
+// AI: with x defaulting to 1 (which matches the old math.atan(y)).
 static int math_atan (lua_State *L) {
   lua_Number y = luaL_checknumber(L, 1);
   lua_Number x = luaL_optnumber(L, 2, 1);
@@ -77,6 +86,8 @@ static int math_atan (lua_State *L) {
 }
 
 
+// AI: Implements math.tointeger: pushes the integer value, or fail when the
+// AI: argument is not convertible to an integer.
 static int math_toint (lua_State *L) {
   int valid;
   lua_Integer n = lua_tointegerx(L, 1, &valid);
@@ -90,6 +101,8 @@ static int math_toint (lua_State *L) {
 }
 
 
+// AI: Helper: pushes 'd' as an integer when it has an exact integer value,
+// AI: otherwise as a float.
 static void pushnumint (lua_State *L, lua_Number d) {
   lua_Integer n;
   if (lua_numbertointeger(d, &n))  /* does 'd' fit in an integer? */
@@ -99,6 +112,8 @@ static void pushnumint (lua_State *L, lua_Number d) {
 }
 
 
+// AI: Implements math.floor: integers pass through unchanged; floats are
+// AI: floored and pushed as integer when the value fits.
 static int math_floor (lua_State *L) {
   if (lua_isinteger(L, 1))
     lua_settop(L, 1);  /* integer is its own floor */
@@ -110,6 +125,8 @@ static int math_floor (lua_State *L) {
 }
 
 
+// AI: Implements math.ceil: integers pass through unchanged; floats are
+// AI: ceiled and pushed as integer when the value fits.
 static int math_ceil (lua_State *L) {
   if (lua_isinteger(L, 1))
     lua_settop(L, 1);  /* integer is its own ceiling */
@@ -121,6 +138,8 @@ static int math_ceil (lua_State *L) {
 }
 
 
+// AI: Implements math.fmod: integer operands use '%', with special handling
+// AI: for divisors 0 (error) and -1 (avoids overflow on LUA_MININTEGER).
 static int math_fmod (lua_State *L) {
   if (lua_isinteger(L, 1) && lua_isinteger(L, 2)) {
     lua_Integer d = lua_tointeger(L, 2);
@@ -143,6 +162,8 @@ static int math_fmod (lua_State *L) {
 ** (which is not compatible with 'float*') when lua_Number is not
 ** 'double'.
 */
+// AI: Implements math.modf: returns (integer part, fractional part); the
+// AI: integer part is truncated toward zero, integers give themselves + 0.
 static int math_modf (lua_State *L) {
   if (lua_isinteger(L ,1)) {
     lua_settop(L, 1);  /* number is its own integer part */
@@ -160,12 +181,14 @@ static int math_modf (lua_State *L) {
 }
 
 
+// AI: Implements math.sqrt(x): pushes the square root of its argument.
 static int math_sqrt (lua_State *L) {
   lua_pushnumber(L, l_mathop(sqrt)(luaL_checknumber(L, 1)));
   return 1;
 }
 
 
+// AI: Implements math.ult(m, n): unsigned comparison of two integers.
 static int math_ult (lua_State *L) {
   lua_Integer a = luaL_checkinteger(L, 1);
   lua_Integer b = luaL_checkinteger(L, 2);
@@ -174,6 +197,8 @@ static int math_ult (lua_State *L) {
 }
 
 
+// AI: Implements math.log(x [, base]): natural log by default, with fast
+// AI: paths for bases 2 and 10 when the platform provides them.
 static int math_log (lua_State *L) {
   lua_Number x = luaL_checknumber(L, 1);
   lua_Number res;
@@ -196,24 +221,29 @@ static int math_log (lua_State *L) {
 }
 
 
+// AI: Implements math.exp(x): pushes e raised to the given power.
 static int math_exp (lua_State *L) {
   lua_pushnumber(L, l_mathop(exp)(luaL_checknumber(L, 1)));
   return 1;
 }
 
 
+// AI: Implements math.deg(x): converts radians to degrees.
 static int math_deg (lua_State *L) {
   lua_pushnumber(L, luaL_checknumber(L, 1) * (l_mathop(180.0) / PI));
   return 1;
 }
 
 
+// AI: Implements math.rad(x): converts degrees to radians.
 static int math_rad (lua_State *L) {
   lua_pushnumber(L, luaL_checknumber(L, 1) * (PI / l_mathop(180.0)));
   return 1;
 }
 
 
+// AI: Implements math.frexp(x): returns (mantissa, exponent) such that
+// AI: x == mantissa * 2^exponent with mantissa in [0.5, 1).
 static int math_frexp (lua_State *L) {
   lua_Number x = luaL_checknumber(L, 1);
   int ep;
@@ -223,6 +253,7 @@ static int math_frexp (lua_State *L) {
 }
 
 
+// AI: Implements math.ldexp(m, e): returns m * 2^e.
 static int math_ldexp (lua_State *L) {
   lua_Number x = luaL_checknumber(L, 1);
   int ep = (int)luaL_checkinteger(L, 2);
@@ -231,6 +262,8 @@ static int math_ldexp (lua_State *L) {
 }
 
 
+// AI: Implements math.min(...): returns the smallest argument via Lua
+// AI: comparison (so it honors __lt metamethods); errors on no arguments.
 static int math_min (lua_State *L) {
   int n = lua_gettop(L);  /* number of arguments */
   int imin = 1;  /* index of current minimum value */
@@ -245,6 +278,8 @@ static int math_min (lua_State *L) {
 }
 
 
+// AI: Implements math.max(...): returns the largest argument via Lua
+// AI: comparison (so it honors __lt metamethods); errors on no arguments.
 static int math_max (lua_State *L) {
   int n = lua_gettop(L);  /* number of arguments */
   int imax = 1;  /* index of current maximum value */
@@ -259,6 +294,8 @@ static int math_max (lua_State *L) {
 }
 
 
+// AI: Implements math.type(x): returns "integer" or "float" for numbers,
+// AI: otherwise fail.
 static int math_type (lua_State *L) {
   if (lua_type(L, 1) == LUA_TNUMBER)
     lua_pushstring(L, (lua_isinteger(L, 1)) ? "integer" : "float");
@@ -341,10 +378,13 @@ static int math_type (lua_State *L) {
 
 
 /* rotate left 'x' by 'n' bits */
+// AI: xoshiro256** helper: rotates a 64-bit word left by 'n' bits.
 static Rand64 rotl (Rand64 x, int n) {
   return (x << n) | (trim64(x) >> (64 - n));
 }
 
+// AI: xoshiro256** core step: advances the 4-word state array and returns
+// AI: the scrambled output of the PRNG.
 static Rand64 nextrand (Rand64 *state) {
   Rand64 state0 = state[0];
   Rand64 state1 = state[1];
@@ -376,6 +416,8 @@ static Rand64 nextrand (Rand64 *state) {
 /* 2^(-FIGS) == 2^-1 / 2^(FIGS-1) */
 #define scaleFIG	(l_mathop(0.5) / ((Rand64)1 << (FIGS - 1)))
 
+// AI: Converts the top 'FIGS' random bits into a float in [0, 1), using a
+// AI: signed intermediate for compatibility with old Microsoft compilers.
 static lua_Number I2d (Rand64 x) {
   SRand64 sx = (SRand64)(trim64(x) >> shift64_FIG);
   lua_Number res = (lua_Number)(sx) * scaleFIG;
@@ -418,6 +460,7 @@ typedef struct Rand64 {
 */
 
 /* build a new Rand64 value */
+// AI: Builds a Rand64 value from high and low 32-bit halves.
 static Rand64 packI (l_uint32 h, l_uint32 l) {
   Rand64 result;
   result.h = h;
@@ -426,18 +469,22 @@ static Rand64 packI (l_uint32 h, l_uint32 l) {
 }
 
 /* return i << n */
+// AI: Rand64 left shift by 'n' bits (0 < n < 32), shifting bits between
+// AI: the two 32-bit halves.
 static Rand64 Ishl (Rand64 i, int n) {
   lua_assert(n > 0 && n < 32);
   return packI((i.h << n) | (trim32(i.l) >> (32 - n)), i.l << n);
 }
 
 /* i1 ^= i2 */
+// AI: Rand64 xor-assign in place, on both halves.
 static void Ixor (Rand64 *i1, Rand64 i2) {
   i1->h ^= i2.h;
   i1->l ^= i2.l;
 }
 
 /* return i1 + i2 */
+// AI: Rand64 addition, propagating the carry bit into the high half.
 static Rand64 Iadd (Rand64 i1, Rand64 i2) {
   Rand64 result = packI(i1.h + i2.h, i1.l + i2.l);
   if (trim32(result.l) < trim32(i1.l))  /* carry? */
@@ -446,16 +493,19 @@ static Rand64 Iadd (Rand64 i1, Rand64 i2) {
 }
 
 /* return i * 5 */
+// AI: Rand64 multiply by 5, computed as (i << 2) + i.
 static Rand64 times5 (Rand64 i) {
   return Iadd(Ishl(i, 2), i);  /* i * 5 == (i << 2) + i */
 }
 
 /* return i * 9 */
+// AI: Rand64 multiply by 9, computed as (i << 3) + i.
 static Rand64 times9 (Rand64 i) {
   return Iadd(Ishl(i, 3), i);  /* i * 9 == (i << 3) + i */
 }
 
 /* return 'i' rotated left 'n' bits */
+// AI: Rand64 rotate left by 'n' bits (0 < n < 32) on the two halves.
 static Rand64 rotl (Rand64 i, int n) {
   lua_assert(n > 0 && n < 32);
   return packI((i.h << n) | (trim32(i.l) >> (32 - n)),
@@ -463,6 +513,8 @@ static Rand64 rotl (Rand64 i, int n) {
 }
 
 /* for offsets larger than 32, rotate right by 64 - offset */
+// AI: Rand64 rotate left for offsets in (32, 64), implemented as a right
+// AI: rotate by (64 - n).
 static Rand64 rotl1 (Rand64 i, int n) {
   lua_assert(n > 32 && n < 64);
   n = 64 - n;
@@ -473,6 +525,7 @@ static Rand64 rotl1 (Rand64 i, int n) {
 /*
 ** implementation of 'xoshiro256**' algorithm on 'Rand64' values
 */
+// AI: xoshiro256** core step on the two-half Rand64 representation.
 static Rand64 nextrand (Rand64 *state) {
   Rand64 res = times9(rotl(times5(state[1]), 7));
   Rand64 t = Ishl(state[1], 17);
@@ -503,6 +556,7 @@ static Rand64 nextrand (Rand64 *state) {
 ** get up to 32 bits from higher half, shifting right to
 ** throw out the extra bits.
 */
+// AI: Converts the top 'FIGS' bits of the higher half into a float in [0, 1).
 static lua_Number I2d (Rand64 x) {
   lua_Number h = (lua_Number)(trim32(x.h) >> (32 - FIGS));
   return h * scaleFIG;
@@ -526,6 +580,8 @@ static lua_Number I2d (Rand64 x) {
 #define shiftHI		((lua_Number)(UONE << (FIGS - 33)) * l_mathop(2.0))
 
 
+// AI: Converts bits from both halves into a float in [0, 1) when more than
+// AI: 32 mantissa bits are needed.
 static lua_Number I2d (Rand64 x) {
   lua_Number h = (lua_Number)trim32(x.h) * shiftHI;
   lua_Number l = (lua_Number)(trim32(x.l) >> shiftLOW);
@@ -536,11 +592,13 @@ static lua_Number I2d (Rand64 x) {
 
 
 /* convert a 'Rand64' to a 'lua_Unsigned' */
+// AI: Converts a Rand64 value to lua_Unsigned, discarding the extra bits.
 static lua_Unsigned I2UInt (Rand64 x) {
   return (((lua_Unsigned)trim32(x.h) << 31) << 1) | (lua_Unsigned)trim32(x.l);
 }
 
 /* convert a 'lua_Unsigned' to a 'Rand64' */
+// AI: Converts a lua_Unsigned to a Rand64 value.
 static Rand64 Int2I (lua_Unsigned n) {
   return packI((l_uint32)((n >> 31) >> 1), (l_uint32)n);
 }
@@ -566,6 +624,8 @@ typedef struct {
 ** is inside [0, n], we are done. Otherwise, we try with another 'ran',
 ** until we have a result inside the interval.
 */
+// AI: Projects a random value uniformly into [0, n]: masks it to a Mersenne
+// AI: number >= n and rejects draws that fall outside the interval.
 static lua_Unsigned project (lua_Unsigned ran, lua_Unsigned n,
                              RanState *state) {
   lua_Unsigned lim = n;  /* to compute the Mersenne number */
@@ -579,6 +639,9 @@ static lua_Unsigned project (lua_Unsigned ran, lua_Unsigned n,
 }
 
 
+// AI: Implements math.random: 0 args -> float in [0, 1); 1 arg -> integer in
+// AI: [1, n] (or a full random integer if n == 0); 2 args -> integer in
+// AI: [low, up], drawn uniformly via 'project'.
 static int math_random (lua_State *L) {
   lua_Integer low, up;
   lua_Unsigned p;
@@ -614,6 +677,8 @@ static int math_random (lua_State *L) {
 }
 
 
+// AI: Initializes the 4-word state from two seeds and discards 16 outputs
+// AI: to spread the seed; pushes the seeds back as return values.
 static void setseed (lua_State *L, Rand64 *state,
                      lua_Unsigned n1, lua_Unsigned n2) {
   int i;
@@ -628,6 +693,8 @@ static void setseed (lua_State *L, Rand64 *state,
 }
 
 
+// AI: Implements math.randomseed([x [, y]]): reseeds the generator, using a
+// AI: time-based seed when called without arguments; returns the seeds used.
 static int math_randomseed (lua_State *L) {
   RanState *state = (RanState *)lua_touserdata(L, lua_upvalueindex(1));
   lua_Unsigned n1, n2;
@@ -654,6 +721,8 @@ static const luaL_Reg randfuncs[] = {
 /*
 ** Register the random functions and initialize their state.
 */
+// AI: Allocates the generator state as userdata and registers random and
+// AI: randomseed as closures sharing that same state.
 static void setrandfunc (lua_State *L) {
   RanState *state = (RanState *)lua_newuserdatauv(L, sizeof(RanState), 0);
   setseed(L, state->s, luaL_makeseed(L), 0);  /* initialize with random seed */
@@ -671,21 +740,25 @@ static void setrandfunc (lua_State *L) {
 */
 #if defined(LUA_COMPAT_MATHLIB)
 
+// AI: Deprecated: math.cosh(x), kept only for LUA_COMPAT_MATHLIB.
 static int math_cosh (lua_State *L) {
   lua_pushnumber(L, l_mathop(cosh)(luaL_checknumber(L, 1)));
   return 1;
 }
 
+// AI: Deprecated: math.sinh(x), kept only for LUA_COMPAT_MATHLIB.
 static int math_sinh (lua_State *L) {
   lua_pushnumber(L, l_mathop(sinh)(luaL_checknumber(L, 1)));
   return 1;
 }
 
+// AI: Deprecated: math.tanh(x), kept only for LUA_COMPAT_MATHLIB.
 static int math_tanh (lua_State *L) {
   lua_pushnumber(L, l_mathop(tanh)(luaL_checknumber(L, 1)));
   return 1;
 }
 
+// AI: Deprecated: math.pow(x, y), kept only for LUA_COMPAT_MATHLIB.
 static int math_pow (lua_State *L) {
   lua_Number x = luaL_checknumber(L, 1);
   lua_Number y = luaL_checknumber(L, 2);
@@ -693,6 +766,7 @@ static int math_pow (lua_State *L) {
   return 1;
 }
 
+// AI: Deprecated: math.log10(x), kept only for LUA_COMPAT_MATHLIB.
 static int math_log10 (lua_State *L) {
   lua_pushnumber(L, l_mathop(log10)(luaL_checknumber(L, 1)));
   return 1;
@@ -749,6 +823,8 @@ static const luaL_Reg mathlib[] = {
 /*
 ** Open math library
 */
+// AI: Opens the math library, filling the placeholder constants pi, huge,
+// AI: maxinteger, and mininteger with their concrete values.
 LUAMOD_API int luaopen_math (lua_State *L) {
   luaL_newlib(L, mathlib);
   lua_pushnumber(L, PI);

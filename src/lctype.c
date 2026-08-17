@@ -17,6 +17,7 @@
 #include <limits.h>
 
 
+// AI: With LUA_UCID, bytes 0x80-0xFF count as alphabetic+printable (0x01|0x04); otherwise they are 0.
 #if defined (LUA_UCID)		/* accept UniCode IDentifiers? */
 /* consider all non-ASCII codepoints to be alphabetic */
 #define NONA		0x01
@@ -25,6 +26,8 @@
 #endif
 
 
+// AI: Lookup table used when the built-in (non-system) ctype is active: one byte per character, plus entry 0 for EOZ (-1).
+// AI: Bits follow lctype.h: 1=alpha, 2=digit, 4=printable, 8=space, 0x10=hex digit; '_' is alpha, so lislalnum includes it.
 LUAI_DDEF const lu_byte luai_ctype_[UCHAR_MAX + 2] = {
   0x00,  /* EOZ */
   0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,	/* 0. */

@@ -22,6 +22,8 @@
 #include "llimits.h"
 
 
+// AI: Implements print(): converts each argument with tostring-like
+// AI: semantics, writes them separated by tabs, then a newline.
 static int luaB_print (lua_State *L) {
   int n = lua_gettop(L);  /* number of arguments */
   int i;
@@ -43,6 +45,8 @@ static int luaB_print (lua_State *L) {
 ** Check first for errors; otherwise an error may interrupt
 ** the composition of a warning, leaving it unfinished.
 */
+// AI: Implements warn(): first checks all arguments are strings, then
+// AI: emits them; every chunk but the last is marked as continuation.
 static int luaB_warn (lua_State *L) {
   int n = lua_gettop(L);  /* number of arguments */
   int i;
@@ -58,6 +62,9 @@ static int luaB_warn (lua_State *L) {
 
 #define SPACECHARS	" \f\n\r\t\v"
 
+// AI: Parser for tonumber(x, base): skips spaces and a sign, consumes
+// AI: digits valid in 'base' and leaves *pn with the value. Returns a
+// AI: pointer past the numeral, or NULL on an invalid digit.
 static const char *b_str2int (const char *s, unsigned base, lua_Integer *pn) {
   lua_Unsigned n = 0;
   int neg = 0;
@@ -80,6 +87,9 @@ static const char *b_str2int (const char *s, unsigned base, lua_Integer *pn) {
 }
 
 
+// AI: Implements tonumber(): with no base it converts any numeric string
+// AI: (or returns numbers untouched); with a base (2..36) the whole
+// AI: string must be a valid numeral, otherwise the result is nil.
 static int luaB_tonumber (lua_State *L) {
   if (lua_isnoneornil(L, 2)) {  /* standard conversion? */
     if (lua_type(L, 1) == LUA_TNUMBER) {  /* already a number? */
@@ -113,6 +123,8 @@ static int luaB_tonumber (lua_State *L) {
 }
 
 
+// AI: Implements error(): raises the message; if it is a string and
+// AI: 'level' > 0, prefixes it with position info of that stack level.
 static int luaB_error (lua_State *L) {
   int level = (int)luaL_optinteger(L, 2, 1);
   lua_settop(L, 1);
@@ -125,6 +137,8 @@ static int luaB_error (lua_State *L) {
 }
 
 
+// AI: Implements getmetatable(): returns the __metatable field when
+// AI: present (protecting the real table), else the metatable, else nil.
 static int luaB_getmetatable (lua_State *L) {
   luaL_checkany(L, 1);
   if (!lua_getmetatable(L, 1)) {
@@ -136,6 +150,8 @@ static int luaB_getmetatable (lua_State *L) {
 }
 
 
+// AI: Implements setmetatable(): refuses to change a metatable guarded
+// AI: by a non-nil __metatable field.
 static int luaB_setmetatable (lua_State *L) {
   int t = lua_type(L, 2);
   luaL_checktype(L, 1, LUA_TTABLE);
@@ -148,6 +164,7 @@ static int luaB_setmetatable (lua_State *L) {
 }
 
 
+// AI: Implements rawequal(): identity comparison that never invokes __eq.
 static int luaB_rawequal (lua_State *L) {
   luaL_checkany(L, 1);
   luaL_checkany(L, 2);
@@ -156,6 +173,7 @@ static int luaB_rawequal (lua_State *L) {
 }
 
 
+// AI: Implements rawlen(): raw length of a table or string, ignoring __len.
 static int luaB_rawlen (lua_State *L) {
   int t = lua_type(L, 1);
   luaL_argexpected(L, t == LUA_TTABLE || t == LUA_TSTRING, 1,
@@ -165,6 +183,7 @@ static int luaB_rawlen (lua_State *L) {
 }
 
 
+// AI: Implements rawget(): table access that bypasses __index metamethods.
 static int luaB_rawget (lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checkany(L, 2);
@@ -173,6 +192,7 @@ static int luaB_rawget (lua_State *L) {
   return 1;
 }
 
+// AI: Implements rawset(): table assignment that bypasses __newindex.
 static int luaB_rawset (lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checkany(L, 2);
@@ -183,6 +203,8 @@ static int luaB_rawset (lua_State *L) {
 }
 
 
+// AI: Helper for collectgarbage: turns the mode returned by lua_gc into
+// AI: "incremental"/"generational", or nil when the call was invalid.
 static int pushmode (lua_State *L, int oldmode) {
   if (oldmode == -1)
     luaL_pushfail(L);  /* invalid call to 'lua_gc' */
@@ -198,6 +220,9 @@ static int pushmode (lua_State *L, int oldmode) {
 */
 #define checkvalres(res) { if (res == -1) break; }
 
+// AI: Implements collectgarbage(): maps the option string to an lua_gc
+// AI: operation. A result of -1 means the call happened inside a
+// AI: finalizer and is rejected with a fail.
 static int luaB_collectgarbage (lua_State *L) {
   static const char *const opts[] = {"stop", "restart", "collect",
     "count", "step", "isrunning", "generational", "incremental",
@@ -257,6 +282,8 @@ static int luaB_collectgarbage (lua_State *L) {
 }
 
 
+// AI: Implements type(): returns the type name of the argument, erroring
+// AI: when no value was given.
 static int luaB_type (lua_State *L) {
   int t = lua_type(L, 1);
   luaL_argcheck(L, t != LUA_TNONE, 1, "value expected");
@@ -265,6 +292,8 @@ static int luaB_type (lua_State *L) {
 }
 
 
+// AI: Implements next(): one raw iteration step used by pairs; returns
+// AI: (next key, value) or nil when the table is exhausted.
 static int luaB_next (lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   lua_settop(L, 2);  /* create a 2nd argument if there isn't one */
@@ -277,11 +306,16 @@ static int luaB_next (lua_State *L) {
 }
 
 
+// AI: Continuation used when pairs calls __pairs: __pairs already pushed
+// AI: all 4 results, so it simply returns them.
 static int pairscont (lua_State *L, int status, lua_KContext k) {
   (void)L; (void)status; (void)k;  /* unused */
   return 4;  /* __pairs did all the work, just return its results */
 }
 
+// AI: Implements pairs(): honors a __pairs metamethod (returns its 4
+// AI: results); otherwise returns (next, table, nil, nil) for raw
+// AI: iteration.
 static int luaB_pairs (lua_State *L) {
   luaL_checkany(L, 1);
   if (luaL_getmetafield(L, 1, "__pairs") == LUA_TNIL) {  /* no metamethod? */
@@ -301,6 +335,8 @@ static int luaB_pairs (lua_State *L) {
 /*
 ** Traversal function for 'ipairs'
 */
+// AI: Auxiliary step for ipairs: advances the index and returns
+// AI: (index, value), stopping when the slot holds nil.
 static int ipairsaux (lua_State *L) {
   lua_Integer i = luaL_checkinteger(L, 2);
   i = luaL_intop(+, i, 1);
@@ -313,6 +349,8 @@ static int ipairsaux (lua_State *L) {
 ** 'ipairs' function. Returns 'ipairsaux', given "table", 0.
 ** (The given "table" may not be a table.)
 */
+// AI: Implements ipairs(): returns (ipairsaux, object, 0); iteration
+// AI: ends at the first nil slot.
 static int luaB_ipairs (lua_State *L) {
   luaL_checkany(L, 1);
   lua_pushcfunction(L, ipairsaux);  /* iteration function */
@@ -322,6 +360,9 @@ static int luaB_ipairs (lua_State *L) {
 }
 
 
+// AI: Shared ending for load/loadfile: on success optionally binds the
+// AI: first upvalue to the given environment; on failure returns
+// AI: (fail, error message).
 static int load_aux (lua_State *L, int status, int envidx) {
   if (l_likely(status == LUA_OK)) {
     if (envidx != 0) {  /* 'env' parameter? */
@@ -339,6 +380,8 @@ static int load_aux (lua_State *L, int status, int envidx) {
 }
 
 
+// AI: Validates the 'mode' argument of load/loadfile. 'B' is rejected
+// AI: because this dialect cannot compile chunks into fixed buffers.
 static const char *getMode (lua_State *L, int idx) {
   const char *mode = luaL_optstring(L, idx, NULL);
   if (mode != NULL && strchr(mode, 'B') != NULL) {
@@ -349,6 +392,8 @@ static const char *getMode (lua_State *L, int idx) {
 }
 
 
+// AI: Implements loadfile(): compiles the given file (or stdin when no
+// AI: name given) and sets the optional environment.
 static int luaB_loadfile (lua_State *L) {
   const char *fname = luaL_optstring(L, 1, NULL);
   const char *mode = getMode(L, 2);
@@ -368,6 +413,8 @@ static int luaB_loadfile (lua_State *L) {
 /*
 ** Reader for generic 'load' function.
 */
+// AI: Reader callback used when load gets a function: calls it to fetch
+// AI: the next chunk; nil ends the input, non-strings raise an error.
 static const char *generic_reader (lua_State *L, void *ud, size_t *size) {
   int *firstcall = cast(int *, ud);
   luaL_checkstack(L, 2, "too many nested functions");
@@ -387,6 +434,8 @@ static const char *generic_reader (lua_State *L, void *ud, size_t *size) {
 }
 
 
+// AI: Implements load(): compiles a chunk from a string or from a reader
+// AI: function, with optional chunk name, mode and environment.
 static int luaB_load (lua_State *L) {
   int status;
   size_t l;
@@ -409,12 +458,16 @@ static int luaB_load (lua_State *L) {
 /* }====================================================== */
 
 
+// AI: Continuation for dofile: returns every result except the chunk
+// AI: function itself.
 static int dofilecont (lua_State *L, int d1, lua_KContext d2) {
   (void)d1;  (void)d2;  /* only to match 'lua_Kfunction' prototype */
   return lua_gettop(L) - 1;
 }
 
 
+// AI: Implements dofile(): loads and immediately runs a file, returning
+// AI: all values it produces (errors propagate).
 static int luaB_dofile (lua_State *L) {
   const char *fname = luaL_optstring(L, 1, NULL);
   lua_settop(L, 1);
@@ -425,6 +478,8 @@ static int luaB_dofile (lua_State *L) {
 }
 
 
+// AI: Implements assert(): returns all arguments when the condition is
+// AI: true, otherwise raises an error with an optional message.
 static int luaB_assert (lua_State *L) {
   if (l_likely(lua_toboolean(L, 1)))  /* condition is true? */
     return lua_gettop(L);  /* return all arguments */
@@ -438,6 +493,8 @@ static int luaB_assert (lua_State *L) {
 }
 
 
+// AI: Implements select(): returns the argument count for '#', or the
+// AI: arguments from a (possibly negative) index on.
 static int luaB_select (lua_State *L) {
   int n = lua_gettop(L);
   if (lua_type(L, 1) == LUA_TSTRING && *lua_tostring(L, 1) == '#') {
@@ -461,6 +518,8 @@ static int luaB_select (lua_State *L) {
 ** 'extra' values (where 'extra' is exactly the number of items to be
 ** ignored).
 */
+// AI: Shared ending for pcall/xpcall: on error returns (false, message);
+// AI: on success returns all results above the pre-pushed 'true'.
 static int finishpcall (lua_State *L, int status, lua_KContext extra) {
   if (l_unlikely(status != LUA_OK && status != LUA_YIELD)) {  /* error? */
     lua_pushboolean(L, 0);  /* first result (false) */
@@ -472,6 +531,8 @@ static int finishpcall (lua_State *L, int status, lua_KContext extra) {
 }
 
 
+// AI: Implements pcall(): pushes a 'true' marker under the function,
+// AI: calls it protected, and strips the marker on success.
 static int luaB_pcall (lua_State *L) {
   int status;
   luaL_checkany(L, 1);
@@ -487,6 +548,8 @@ static int luaB_pcall (lua_State *L) {
 ** stack will have <f, err, true, f, [args...]>; so, the function passes
 ** 2 to 'finishpcall' to skip the 2 first values when returning results.
 */
+// AI: Implements xpcall(): like pcall but with a message handler; the
+// AI: stack is rotated so the handler stays below the call.
 static int luaB_xpcall (lua_State *L) {
   int status;
   int n = lua_gettop(L);
@@ -499,6 +562,8 @@ static int luaB_xpcall (lua_State *L) {
 }
 
 
+// AI: Implements tostring(): returns the string representation of the
+// AI: argument (honoring __tostring).
 static int luaB_tostring (lua_State *L) {
   luaL_checkany(L, 1);
   luaL_tolstring(L, 1, NULL);
@@ -506,6 +571,8 @@ static int luaB_tostring (lua_State *L) {
 }
 
 
+// AI: Table of base library functions; _G and _VERSION are filled in
+// AI: by luaopen_base.
 static const luaL_Reg base_funcs[] = {
   {"assert", luaB_assert},
   {"collectgarbage", luaB_collectgarbage},
@@ -537,6 +604,8 @@ static const luaL_Reg base_funcs[] = {
 };
 
 
+// AI: Opens the base library into the global table and sets the _G and
+// AI: _VERSION globals.
 LUAMOD_API int luaopen_base (lua_State *L) {
   /* open lib into global table */
   lua_pushglobaltable(L);

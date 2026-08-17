@@ -109,6 +109,9 @@ static void LUAI_TRY (lua_State *L, lua_longjmp *c, Pfunc f, void *ud) {
 #endif							/* } */
 
 
+// AI: Install the error object at 'oldtop': for OOM reuse the preregistered
+// AI: message; otherwise move the object on top of the stack down to 'oldtop'.
+// AI: After the call, top is 'oldtop + 1'.
 void luaD_seterrorobj (lua_State *L, TStatus errcode, StkId oldtop) {
   if (errcode == LUA_ERRMEM) {  /* memory error? */
     setsvalue2s(L, oldtop, G(L)->memerrmsg); /* reuse preregistered msg. */
@@ -122,6 +125,9 @@ void luaD_seterrorobj (lua_State *L, TStatus errcode, StkId oldtop) {
 }
 
 
+// AI: Raise an error: long-jump to the current error handler, or, when none
+// AI: exists, reset the thread, forward the error to the main thread's
+// AI: handler, and as a last resort call the panic function or abort.
 l_noret luaD_throw (lua_State *L, TStatus errcode) {
   if (L->errorJmp) {  /* thread has an error handler? */
     L->errorJmp->status = errcode;  /* set status */
@@ -147,6 +153,8 @@ l_noret luaD_throw (lua_State *L, TStatus errcode) {
 }
 
 
+// AI: Throw an error but skip all nested handlers, jumping to the outermost
+// AI: (base level) error handler that was installed on this thread.
 l_noret luaD_throwbaselevel (lua_State *L, TStatus errcode) {
   if (L->errorJmp) {
     /* unroll error entries up to the first level */
@@ -157,6 +165,9 @@ l_noret luaD_throwbaselevel (lua_State *L, TStatus errcode) {
 }
 
 
+// AI: Run 'f(L, ud)' under a fresh long-jmp handler; returns LUA_OK on
+// AI: normal completion or the error/yield status otherwise. Also restores
+// AI: the C-call counter, since yields can run arbitrary code in between.
 TStatus luaD_rawrunprotected (lua_State *L, Pfunc f, void *ud) {
   l_uint32 oldnCcalls = L->nCcalls;
   lua_longjmp lj;
@@ -212,6 +223,8 @@ TStatus luaD_rawrunprotected (lua_State *L, Pfunc f, void *ud) {
 
 
 /* raise a stack error while running the message handler */
+// AI: Raise the special LUA_ERRERR: a stack/error handler itself failed,
+// AI: so only the fixed message can be pushed (it must fit in EXTRA_STACK).
 l_noret luaD_errerr (lua_State *L) {
   TString *msg = luaS_newliteral(L, "error in error handling");
   setsvalue2s(L, L->top.p, msg);
@@ -225,6 +238,9 @@ l_noret luaD_errerr (lua_State *L) {
 ** as a finalizer): At least BASIC_STACK_SIZE in the Lua stack, two
 ** available CallInfos, and two "slots" in the C stack.
 */
+// AI: Check that there is room to run a simple function (finalizer): two
+// AI: free CallInfos, C-stack slots, and BASIC_STACK_SIZE stack slots;
+// AI: returns 0 if any guarantee cannot be met.
 int luaD_checkminstack (lua_State *L) {
   if (getCcalls(L) >= LUAI_MAXCCALLS - 2)
     return 0;  /* not enough C-stack slots */
@@ -257,6 +273,8 @@ int luaD_checkminstack (lua_State *L) {
 /*
 ** Change all pointers to the stack into offsets.
 */
+// AI: Convert every pointer into the stack (top, tbclist, open upvalues,
+// AI: CallInfos) into an offset, so it survives the reallocation.
 static void relstack (lua_State *L) {
   CallInfo *ci;
   UpVal *up;
@@ -274,6 +292,9 @@ static void relstack (lua_State *L) {
 /*
 ** Change back all offsets into pointers.
 */
+// AI: Restore all stack pointers from the offsets saved by 'relstack'
+// AI: after the reallocation; Lua frames are flagged via 'trap' so the
+// AI: interpreter re-syncs 'base' from 'ci->func' on its next fetch.
 static void correctstack (lua_State *L, StkId oldstack) {
   CallInfo *ci;
   UpVal *up;
@@ -327,6 +348,9 @@ static void correctstack (lua_State *L, StkId oldstack) {
 ** In case of allocation error, raise an error or return false according
 ** to 'raiseerror'.
 */
+// AI: Reallocate the value stack to 'newsize', remapping all pointers
+// AI: through relstack/correctstack. GC is frozen during the move; on
+// AI: allocation failure it either raises (raiseerror) or returns 0.
 int luaD_reallocstack (lua_State *L, int newsize, int raiseerror) {
   int oldsize = stacksize(L);
   int i;
@@ -358,6 +382,9 @@ int luaD_reallocstack (lua_State *L, int newsize, int raiseerror) {
 ** Try to grow the stack by at least 'n' elements. When 'raiseerror'
 ** is true, raises any error; otherwise, return 0 in case of errors.
 */
+// AI: Grow the stack by at least 'n' slots (1.5x growth normally); if the
+// AI: stack is already at ERRORSTACKSIZE it cannot grow and, when
+// AI: 'raiseerror' is set, raises a stack error inside the message handler.
 int luaD_growstack (lua_State *L, int n, int raiseerror) {
   int size = stacksize(L);
   if (l_unlikely(size > MAXSTACK)) {
@@ -392,6 +419,8 @@ int luaD_growstack (lua_State *L, int n, int raiseerror) {
 ** Compute how much of the stack is being used, by computing the
 ** maximum top of all call frames in the stack and the current top.
 */
+// AI: Compute how many stack slots are actually in use: the highest 'top'
+// AI: among all CallInfos, with a LUA_MINSTACK lower bound.
 static int stackinuse (lua_State *L) {
   CallInfo *ci;
   int res;
@@ -416,6 +445,9 @@ static int stackinuse (lua_State *L) {
 ** stacksize (equal to ERRORSTACKSIZE in this case), and so the stack
 ** will be reduced to a "regular" size.
 */
+// AI: Shrink the stack when it is more than 3x the current use (to ~2x),
+// AI: so a large stack from a peak shrinks after the peak passes; also
+// AI: trims the CallInfo list. Failure to reallocate is tolerated.
 void luaD_shrinkstack (lua_State *L) {
   int inuse = stackinuse(L);
   int max = (inuse > MAXSTACK / 3) ? MAXSTACK : inuse * 3;
@@ -438,6 +470,10 @@ void luaD_shrinkstack (lua_State *L) {
 ** called. (Both 'L->hook' and 'L->hookmask', which trigger this
 ** function, can be changed asynchronously by signals.)
 */
+// AI: Call the debug hook 'L->hook' for 'event' at 'line'. Saves/restores
+// AI: 'top' and the frame 'top', protects the whole activation register,
+// AI: disables reentrancy (CIST_HOOKED, allowhook=0) and unlocks the state
+// AI: so the hook can call back into Lua.
 void luaD_hook (lua_State *L, int event, int line,
                               int ftransfer, int ntransfer) {
   lua_Hook hook = L->hook;
@@ -475,6 +511,8 @@ void luaD_hook (lua_State *L, int event, int line,
 ** whenever 'hookmask' is not zero, so it checks whether call hooks are
 ** active.
 */
+// AI: Run the call hook for a Lua function about to start, distinguishing
+// AI: tail calls; tweaks 'savedpc' so the hook sees the incremented 'pc'.
 void luaD_hookcall (lua_State *L, CallInfo *ci) {
   L->oldpc = 0;  /* set 'oldpc' for new function */
   if (L->hookmask & LUA_MASKCALL) {  /* is call hook on? */
@@ -493,6 +531,9 @@ void luaD_hookcall (lua_State *L, CallInfo *ci) {
 ** 'oldpc'. (Note that this correction is needed by the line hook, so it
 ** is done even when return hooks are off.)
 */
+// AI: Run the return hook for the finishing call ('nres' results) and
+// AI: update 'oldpc' for the caller's line hook (needed even if no return
+// AI: hook is installed). Adjusts 'func' for vararg frames first.
 static void rethook (lua_State *L, CallInfo *ci, int nres) {
   if (L->hookmask & LUA_MASKRET) {  /* is return hook on? */
     StkId firstres = L->top.p - nres;  /* index of first result */
@@ -522,6 +563,10 @@ static void rethook (lua_State *L, CallInfo *ci, int nres) {
 ** (This count will be saved in the 'callstatus' of the call).
 **  Raise an error if this counter overflows.
 */
+// AI: Handle a call to a non-function value: fetch its '__call'
+// AI: metamethod, shift it down over 'func' and return the updated status
+// AI: with the metamethod count (CIST_CCMT) incremented. Errors when there
+// AI: is no '__call' or the chain is too long.
 static unsigned tryfuncTM (lua_State *L, StkId func, unsigned status) {
   const TValue *tm;
   StkId p;
@@ -539,6 +584,8 @@ static unsigned tryfuncTM (lua_State *L, StkId func, unsigned status) {
 
 
 /* Generic case for 'moveresult' */
+// AI: Move 'nres' results from the top of the stack down to 'res',
+// AI: truncating or padding with nil to the 'wanted' count.
 l_sinline void genmoveresults (lua_State *L, StkId res, int nres,
                                              int wanted) {
   StkId firstresult = L->top.p - nres;  /* index of first result */
@@ -560,6 +607,10 @@ l_sinline void genmoveresults (lua_State *L, StkId res, int nres,
 ** parameters) separated. The flag CIST_TBC in 'fwanted', if set,
 ** forces the switch to go to the default case.
 */
+// AI: Fast dispatcher for moving 'nres' results to 'res' according to
+// AI: 'fwanted' (0, 1, LUA_MULTRET, or packed nresults + CIST_TBC flags).
+// AI: The CIST_TBC path closes to-be-closed variables (and may yield, hence
+// AI: 'ci->u2.nres' and CIST_CLSRET) and fires the return hook after them.
 l_sinline void moveresults (lua_State *L, StkId res, int nres,
                                           l_uint32 fwanted) {
   switch (fwanted) {  /* handle typical cases separately */
@@ -604,6 +655,9 @@ l_sinline void moveresults (lua_State *L, StkId res, int nres,
 ** info. If function has to close variables, hook must be called after
 ** that.
 */
+// AI: Finish a function call: fire the return hook (before __close methods
+// AI: when they are pending), move the 'nres' results to the caller's
+// AI: function slot, and pop the CallInfo back to the previous frame.
 void luaD_poscall (lua_State *L, CallInfo *ci, int nres) {
   l_uint32 fwanted = ci->callstatus & (CIST_TBC | CIST_NRESULTS);
   if (l_unlikely(L->hookmask) && !(fwanted & CIST_TBC))
@@ -627,6 +681,8 @@ void luaD_poscall (lua_State *L, CallInfo *ci, int nres) {
 ** CIST_C (if it's a C function), and number of extra arguments.
 ** (All these bit-fields fit in 16-bit values.)
 */
+// AI: Allocate (from the CI list) and initialize a new CallInfo frame:
+// AI: 'func' slot, packed 'status' (nresults/CIST_C/ccmt count) and 'top'.
 l_sinline CallInfo *prepCallInfo (lua_State *L, StkId func, unsigned status,
                                                 StkId top) {
   CallInfo *ci = L->ci = next_ci(L);  /* new frame */
@@ -641,6 +697,8 @@ l_sinline CallInfo *prepCallInfo (lua_State *L, StkId func, unsigned status,
 /*
 ** precall for C functions
 */
+// AI: Set up a C-call frame and run 'f' immediately (unlocked), then
+// AI: finish the call with 'luaD_poscall'; returns the number of results.
 l_sinline int precallC (lua_State *L, StkId func, unsigned status,
                                             lua_CFunction f) {
   int n;  /* number of returns */
@@ -668,6 +726,10 @@ l_sinline int precallC (lua_State *L, StkId func, unsigned status,
 ** (so that it includes the function itself). Return the number of
 ** results, if it was a C function, or -1 for a Lua function.
 */
+// AI: Prepare a tail call reusing the caller's CallInfo: for a C function
+// AI: run it and return its result count; for a Lua function rebuild the
+// AI: frame in place (adjusting for vararg 'delta'), mark CIST_TAIL and
+// AI: return -1 to signal a Lua callee. Non-functions go through '__call'.
 int luaD_pretailcall (lua_State *L, CallInfo *ci, StkId func,
                                     int narg1, int delta) {
   unsigned status = LUA_MULTRET + 1;
@@ -714,6 +776,10 @@ int luaD_pretailcall (lua_State *L, CallInfo *ci, StkId func,
 ** returns NULL, with all the results on the stack, starting at the
 ** original function position.
 */
+// AI: Prepare a regular call: C functions run immediately and NULL is
+// AI: returned; a Lua function gets a new CallInfo (arguments padded with
+// AI: nil) and its CallInfo is returned for 'luaV_execute'. Non-callable
+// AI: values retry through their '__call' metamethod.
 CallInfo *luaD_precall (lua_State *L, StkId func, int nresults) {
   unsigned status = cast_uint(nresults + 1);
   lua_assert(status <= MAXRESULTS + 1);
@@ -756,6 +822,9 @@ CallInfo *luaD_precall (lua_State *L, StkId func, int nresults) {
 ** check the stack before doing anything else. 'luaD_precall' already
 ** does that.
 */
+// AI: Internal call driver: bump the C-call counter, check the C stack,
+// AI: run the function (precall + luaV_execute for Lua), and undo the
+// AI: counter. 'inc' is 1 for ordinary calls or 'nyci' to forbid yields.
 l_sinline void ccall (lua_State *L, StkId func, int nResults, l_uint32 inc) {
   CallInfo *ci;
   L->nCcalls += inc;
@@ -774,6 +843,7 @@ l_sinline void ccall (lua_State *L, StkId func, int nResults, l_uint32 inc) {
 /*
 ** External interface for 'ccall'
 */
+// AI: Public C-API wrapper for 'ccall': a call that may yield.
 void luaD_call (lua_State *L, StkId func, int nResults) {
   ccall(L, func, nResults, 1);
 }
@@ -782,6 +852,8 @@ void luaD_call (lua_State *L, StkId func, int nResults) {
 /*
 ** Similar to 'luaD_call', but does not allow yields during the call.
 */
+// AI: Call variant that forbids any yield inside (used e.g. for the error
+// AI: handler), by raising the C-call counter with 'nyci'.
 void luaD_callnoyield (lua_State *L, StkId func, int nResults) {
   ccall(L, func, nResults, nyci);
 }
@@ -803,6 +875,11 @@ void luaD_callnoyield (lua_State *L, StkId func, int nResults) {
 ** particular, field CIST_RECST preserves the error status across these
 ** multiple runs, changing only if there is a new error.
 */
+// AI: Finish an interrupted 'lua_pcallk' (yield or error) stored in 'ci':
+// AI: on error, close to-be-closed variables (may yield/error again) and
+// AI: reinstall the error object; clears CIST_YPCALL and restores errfunc.
+// AI: 'ci' is preserved across reentries so repeated runs close one more
+// AI: '__close' each time (CIST_RECST keeps the original status).
 static TStatus finishpcallk (lua_State *L,  CallInfo *ci) {
   TStatus status = getcistrecst(ci);  /* get original status */
   if (l_likely(status == LUA_OK))  /* no error? */
@@ -836,6 +913,9 @@ static TStatus finishpcallk (lua_State *L,  CallInfo *ci) {
 ** of the function called by 'lua_callk'/'lua_pcallk', so we are
 ** conservative and use LUA_MULTRET (always adjust).
 */
+// AI: Resume a C function whose execution was interrupted: either redo
+// AI: 'luaD_poscall' (was closing to-be-closed vars) or finish the pending
+// AI: 'lua_pcallk'/'lua_callk' and run the continuation 'ci->u.c.k'.
 static void finishCcall (lua_State *L, CallInfo *ci) {
   int n;  /* actual number of results from C function */
   if (ci->callstatus & CIST_CLSRET) {  /* was closing TBC variable? */
@@ -865,6 +945,10 @@ static void finishCcall (lua_State *L, CallInfo *ci) {
 ** previously interrupted coroutine until the stack is empty (or another
 ** interruption long-jumps out of the loop).
 */
+// AI: Resume every interrupted frame in the coroutine: C functions are
+// AI: completed via 'finishCcall', Lua functions via 'luaV_finishOp' +
+// AI: 'luaV_execute', until the base CallInfo is reached or a yield/error
+// AI: long-jumps back out of this loop.
 static void unroll (lua_State *L, void *ud) {
   CallInfo *ci;
   UNUSED(ud);
@@ -883,6 +967,8 @@ static void unroll (lua_State *L, void *ud) {
 ** Try to find a suspended protected call (a "recover point") for the
 ** given thread.
 */
+// AI: Locate the innermost pending protected call (a frame marked
+// AI: CIST_YPCALL), i.e. the "recover point" for an error during resume.
 static CallInfo *findpcall (lua_State *L) {
   CallInfo *ci;
   for (ci = L->ci; ci != NULL; ci = ci->previous) {  /* search for a pcall */
@@ -898,6 +984,8 @@ static CallInfo *findpcall (lua_State *L) {
 ** of the coroutine itself. (Such errors should not be handled by any
 ** coroutine error handler and should not kill the coroutine.)
 */
+// AI: Report an error in 'lua_resume' itself (not in the coroutine body):
+// AI: pops the arguments, pushes the message and returns LUA_ERRRUN.
 static int resume_error (lua_State *L, const char *msg, int narg) {
   api_checkpop(L, narg);
   L->top.p -= narg;  /* remove args from the stack */
@@ -915,6 +1003,10 @@ static int resume_error (lua_State *L, const char *msg, int narg) {
 ** function), plus erroneous cases: non-suspended coroutine or dead
 ** coroutine.
 */
+// AI: Protected body of 'lua_resume': a fresh coroutine just runs its
+// AI: function; a yielding one resumes either the interrupted Lua frame
+// AI: (undoing the hook-incremented 'savedpc') or the C continuation,
+// AI: then 'unroll' completes all suspended frames.
 static void resume (lua_State *L, void *ud) {
   int n = *(cast(int*, ud));  /* number of arguments */
   StkId firstArg = L->top.p - n;  /* first argument */
@@ -954,6 +1046,10 @@ static void resume (lua_State *L, void *ud) {
 ** (status == LUA_YIELD), or an unprotected error ('findpcall' doesn't
 ** find a recover point).
 */
+// AI: Continue 'unroll' across recoverable errors: each error long-jumps
+// AI: out, so if a protected call (CIST_YPCALL) is pending the status is
+// AI: stored in it and 'unroll' is retried until a normal end, a yield,
+// AI: or an error with no recovery point left.
 static TStatus precover (lua_State *L, TStatus status) {
   CallInfo *ci;
   while (errorstatus(status) && (ci = findpcall(L)) != NULL) {
@@ -965,6 +1061,9 @@ static TStatus precover (lua_State *L, TStatus status) {
 }
 
 
+// AI: API to (re)start a coroutine: validate its state, run 'resume'
+// AI: protected, recover from errors inside protected calls, and report
+// AI: the results (or the error object) to the caller via '*nresults'.
 LUA_API int lua_resume (lua_State *L, lua_State *from, int nargs,
                                       int *nresults) {
   TStatus status;
@@ -1000,11 +1099,16 @@ LUA_API int lua_resume (lua_State *L, lua_State *from, int nargs,
 }
 
 
+// AI: Tell whether the current thread can yield (C-API wrapper).
 LUA_API int lua_isyieldable (lua_State *L) {
   return yieldable(L);
 }
 
 
+// AI: Yield from the running function (C-API): stores the number of
+// AI: results and, for C continuations, the context/continuation; Lua
+// AI: hooks may only yield with no values. Long-jumps with LUA_YIELD (or
+// AI: returns 0 when the yield happens inside a hook).
 LUA_API int lua_yieldk (lua_State *L, int nresults, lua_KContext ctx,
                         lua_KFunction k) {
   CallInfo *ci;
@@ -1048,6 +1152,8 @@ struct CloseP {
 /*
 ** Auxiliary function to call 'luaF_close' in protected mode.
 */
+// AI: Protected wrapper to call 'luaF_close' once, passing level/status
+// AI: through the CloseP payload.
 static void closepaux (lua_State *L, void *ud) {
   struct CloseP *pcl = cast(struct CloseP *, ud);
   luaF_close(L, pcl->level, pcl->status, 0);
@@ -1058,6 +1164,10 @@ static void closepaux (lua_State *L, void *ud) {
 ** Calls 'luaF_close' in protected mode. Return the original status
 ** or, in case of errors, the new status.
 */
+// AI: Run 'luaF_close' protected, retrying until no '__close' method
+// AI: raises: on each error the saved 'ci'/'allowhook' are restored and
+// AI: the close is attempted again at the (lower) level. Returns the
+// AI: original status, or a new status if an error replaced it.
 TStatus luaD_closeprotected (lua_State *L, ptrdiff_t level, TStatus status) {
   CallInfo *old_ci = L->ci;
   lu_byte old_allowhooks = L->allowhook;
@@ -1080,6 +1190,9 @@ TStatus luaD_closeprotected (lua_State *L, ptrdiff_t level, TStatus status) {
 ** thread information ('allowhook', etc.) and in particular
 ** its stack level in case of errors.
 */
+// AI: Protected call used by the API: runs 'func' with error handler 'ef'
+// AI: and, on error, restores the thread to 'old_top', closes to-be-closed
+// AI: variables down to it, pushes the error object and shrinks the stack.
 TStatus luaD_pcall (lua_State *L, Pfunc func, void *u, ptrdiff_t old_top,
                                   ptrdiff_t ef) {
   TStatus status;
@@ -1113,6 +1226,8 @@ struct SParser {  /* data to 'f_parser' */
 };
 
 
+// AI: Raise a syntax error if the chunk kind 'x' ("text"/"binary") is
+// AI: not allowed by the load 'mode' string.
 static void checkmode (lua_State *L, const char *mode, const char *x) {
   if (strchr(mode, x[0]) == NULL) {
     luaO_pushfstring(L,
@@ -1126,6 +1241,9 @@ static void checkmode (lua_State *L, const char *mode, const char *x) {
 ** Before the first call to the reader function, Lua reserves a slot
 ** with a table for anchoring stuff.
 */
+// AI: Read a chunk from 'p->z' and compile/undump it, anchoring tables
+// AI: on the stack so they survive GC during parsing; the resulting main
+// AI: closure (with initialized upvalues) is pushed as the result.
 static void f_parser (lua_State *L, void *ud) {
   LClosure *cl;
   struct SParser *p = cast(struct SParser *, ud);
@@ -1161,6 +1279,9 @@ static void f_parser (lua_State *L, void *ud) {
 ** temporarily in the stack, as luaH_set may call an emergency GC.
 ** Then, add it in the table with itself as its key.
 */
+// AI: Anchor 'obj' during a protected call by inserting it into the
+// AI: 'anchor' table (key == value); a stack slot first guards against the
+// AI: emergency GC that 'luaH_set' may trigger.
 void luaD_anchorobj (lua_State *L, Table *anchor, GCObject *obj) {
   setgcovalue(L, s2v(L->top.p++), obj);  /* temporary anchor in the stack */
   luaH_set(L, anchor, s2v(L->top.p - 1), s2v(L->top.p - 1));
@@ -1170,6 +1291,8 @@ void luaD_anchorobj (lua_State *L, Table *anchor, GCObject *obj) {
 }
 
 
+// AI: Parse a chunk inside 'luaD_pcall' (yields forbidden while parsing);
+// AI: frees the scanner/parser buffers in all cases and returns the status.
 TStatus luaD_protectedparser (lua_State *L, ZIO *z, const char *name,
                                             const char *mode) {
   struct SParser p;

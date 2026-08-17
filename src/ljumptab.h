@@ -4,20 +4,32 @@
 ** See Copyright Notice in lua.h
 */
 
+// AI: Computed-goto dispatch table, included by lvm.c. 'disptab' maps each OpCode to the label of its handler.
+// AI: Requires the GNU C/Clang '&&label' extension; the vm* macros below drive the dispatch loop.
+
 
 #undef vmdispatch
 #undef vmcase
 #undef vmbreak
 
+// AI: vmdispatch jumps through 'disptab' to the handler label for opcode x.
+
 #define vmdispatch(x)     goto *disptab[x];
 
+// AI: vmcase names each handler label L_<opcode>, matching the addresses stored in 'disptab'.
+
 #define vmcase(l)     L_##l:
+
+// AI: vmbreak fetches the next instruction and dispatches on it; it is the tail of every handler.
 
 #define vmbreak		vmfetch(); vmdispatch(GET_OPCODE(i));
 
 
+// AI: One address (&&L_OP_*) per opcode, in OP_ enum order; the sed recipe above regenerates the list.
+
 static const void *const disptab[NUM_OPCODES] = {
 
+// AI: Generated list: must stay in the same order as the OP_* enum in lopcodes.h, or dispatch will misbehave.
 #if 0
 ** you can update the following list with this command:
 **

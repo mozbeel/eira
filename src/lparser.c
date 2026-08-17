@@ -30,6 +30,10 @@
 
 
 
+// AI: lparser.c is the recursive-descent parser: it walks the token stream
+// AI: produced by llex.c, applies the grammar rules (statements, expressions,
+// AI: constructors, variable declarations, labels/gotos), and drives lcode.c to
+// AI: emit the Proto's code, constants, and debug info.
 /* maximum number of variable declarations per function (must be
    smaller than 250, due to the bytecode format) */
 #define MAXVARS		200
@@ -65,12 +69,16 @@ static void statement (LexState *ls);
 static void expr (LexState *ls, expdesc *v);
 
 
+// AI: Raises a syntax error saying '<token>' was expected (never returns).
 static l_noret error_expected (LexState *ls, int token) {
   luaX_syntaxerror(ls,
       luaO_pushfstring(ls->L, "%s expected", luaX_token2str(ls, token)));
 }
 
 
+// AI: Raises "too many <what> (limit is <limit>)" naming the function being
+// AI: compiled (or "main function"), so compiler resource limits are reported
+// AI: with their exact location.
 static l_noret errorlimit (FuncState *fs, int limit, const char *what) {
   lua_State *L = fs->ls->L;
   const char *msg;
@@ -84,6 +92,8 @@ static l_noret errorlimit (FuncState *fs, int limit, const char *what) {
 }
 
 
+// AI: Public check used by code generation: errors out when 'v' exceeds the
+// AI: limit 'l' (via errorlimit), otherwise silently continues.
 void luaY_checklimit (FuncState *fs, int v, int l, const char *what) {
   if (l_unlikely(v > l)) errorlimit(fs, l, what);
 }
@@ -140,6 +150,7 @@ static void check_match (LexState *ls, int what, int who, int where) {
 }
 
 
+// AI: Reads a NAME token, returning its TString and consuming the token.
 static TString *str_checkname (LexState *ls) {
   TString *ts;
   check(ls, TK_NAME);
@@ -149,6 +160,8 @@ static TString *str_checkname (LexState *ls) {
 }
 
 
+// AI: Initializes an expdesc to kind 'k' with NO_JUMP patch lists and 'i' in
+// AI: its union's generic 'info' field.
 static void init_exp (expdesc *e, expkind k, int i) {
   e->f = e->t = NO_JUMP;
   e->k = k;
@@ -156,6 +169,7 @@ static void init_exp (expdesc *e, expkind k, int i) {
 }
 
 
+// AI: Builds a VKSTR expression for string constant 's' (no code emitted yet).
 static void codestring (expdesc *e, TString *s) {
   e->f = e->t = NO_JUMP;
   e->k = VKSTR;
@@ -163,6 +177,7 @@ static void codestring (expdesc *e, TString *s) {
 }
 
 
+// AI: Reads a NAME token and wraps it as a string constant expression 'e'.
 static void codename (LexState *ls, expdesc *e) {
   codestring(e, str_checkname(ls));
 }
@@ -367,6 +382,8 @@ static int searchupvalue (FuncState *fs, TString *name) {
 }
 
 
+// AI: Grows the Proto's upvalues array and returns a pointer to the new,
+// AI: not-yet-initialized entry (name defaults to NULL).
 static Upvaldesc *allocupvalue (FuncState *fs) {
   Proto *f = fs->f;
   int oldsize = f->sizeupvalues;
@@ -379,6 +396,9 @@ static Upvaldesc *allocupvalue (FuncState *fs) {
 }
 
 
+// AI: Adds an upvalue 'name' to function 'fs', pointing either at a local
+// AI: (VLOCAL: instack=1, register 'ridx') or at an upvalue of the enclosing
+// AI: function (instack=0). Returns its index in 'upvalues'.
 static int newupvalue (FuncState *fs, TString *name, expdesc *v) {
   Upvaldesc *up = allocupvalue(fs);
   FuncState *prev = fs->prev;
@@ -499,6 +519,9 @@ static void singlevaraux (FuncState *fs, TString *n, expdesc *var, int base) {
 }
 
 
+// AI: Compiles the global-environment access: resolves _ENV (which may itself
+// AI: be an upvalue or local), ensures it is in a register, and turns 'var'
+// AI: into the indexed expression _ENV["varname"].
 static void buildglobal (LexState *ls, TString *varname, expdesc *var) {
   FuncState *fs = ls->fs;
   expdesc key;
@@ -535,6 +558,7 @@ static void buildvar (LexState *ls, TString *varname, expdesc *var) {
 }
 
 
+// AI: Convenience wrapper: reads a NAME and resolves it as a variable ('var').
 static void singlevar (LexState *ls, expdesc *var) {
   buildvar(ls, str_checkname(ls), var);
 }
@@ -717,6 +741,9 @@ static void solvegotos (FuncState *fs, BlockCnt *bl) {
 }
 
 
+// AI: Pushes a new block on the function's block stack, recording its scope
+// AI: boundaries: first label/goto index, active-variable level, loop flag, and
+// AI: inherits 'insidetbc' from the enclosing block.
 static void enterblock (FuncState *fs, BlockCnt *bl, lu_byte isloop) {
   bl->isloop = isloop;
   bl->nactvar = fs->nactvar;
@@ -742,6 +769,9 @@ static l_noret undefgoto (LexState *ls, Labeldesc *gt) {
 }
 
 
+// AI: Leaves the current block: emits OP_CLOSE if upvalues escape it, frees its
+// AI: registers, removes its locals, fixes pending breaks, and solves gotos
+// AI: (reporting undefined ones when this was the last block).
 static void leaveblock (FuncState *fs) {
   BlockCnt *bl = fs->bl;
   LexState *ls = fs->ls;
@@ -796,6 +826,9 @@ static void codeclosure (LexState *ls, expdesc *v) {
 }
 
 
+// AI: Initializes a fresh FuncState for a new function: links it to the
+// AI: enclosing state, resets code/constant/counter fields, anchors its constant
+// AI: cache table (in the scanner table), and opens the function's first block.
 static void open_func (LexState *ls, FuncState *fs, BlockCnt *bl) {
   lua_State *L = ls->L;
   Proto *f = fs->f;
@@ -826,6 +859,9 @@ static void open_func (LexState *ls, FuncState *fs, BlockCnt *bl) {
 }
 
 
+// AI: Finalizes a function's Proto: emits the implicit final return, runs the
+// AI: peephole pass (luaK_finish), shrinks all arrays to their used size, and
+// AI: drops the constant-cache anchor from the scanner table.
 static void close_func (LexState *ls) {
   lua_State *L = ls->L;
   FuncState *fs = ls->fs;
@@ -874,6 +910,8 @@ static int block_follow (LexState *ls, int withuntil) {
 }
 
 
+// AI: Parses a statement list up to a block-follow token; a RETURN must be the
+// AI: last statement, so it stops right after one.
 static void statlist (LexState *ls) {
   /* statlist -> { stat [';'] } */
   while (!block_follow(ls, 1)) {
@@ -886,6 +924,8 @@ static void statlist (LexState *ls) {
 }
 
 
+// AI: Parses '.NAME' or ':NAME' after an expression, turning 'v' into an
+// AI: indexed access v.key (evaluating 'v' into a register/upvalue first).
 static void fieldsel (LexState *ls, expdesc *v) {
   /* fieldsel -> ['.' | ':'] NAME */
   FuncState *fs = ls->fs;
@@ -897,6 +937,8 @@ static void fieldsel (LexState *ls, expdesc *v) {
 }
 
 
+// AI: Parses '[' expr ']': the index expression is reduced to a register or
+// AI: constant (via luaK_exp2val) so it can be used as an index.
 static void yindex (LexState *ls, expdesc *v) {
   /* index -> '[' expr ']' */
   luaX_next(ls);  /* skip the '[' */
@@ -935,6 +977,8 @@ typedef struct ConsControl {
 #endif
 
 
+// AI: Parses one record field: NAME '=' exp or '[' exp ']' '=' exp, then stores
+// AI: the value into tab[key]; frees all registers used while parsing the field.
 static void recfield (LexState *ls, ConsControl *cc) {
   /* recfield -> (NAME | '['exp']') = exp */
   FuncState *fs = ls->fs;
@@ -954,6 +998,9 @@ static void recfield (LexState *ls, ConsControl *cc) {
 }
 
 
+// AI: Emits the pending array elements: forces the last list value into the
+// AI: next register, then flushes 'tostore' values into the table with
+// AI: luaK_setlist when the batch limit is reached.
 static void closelistfield (FuncState *fs, ConsControl *cc) {
   lua_assert(cc->tostore > 0);
   luaK_exp2nextreg(fs, &cc->v);
@@ -966,6 +1013,8 @@ static void closelistfield (FuncState *fs, ConsControl *cc) {
 }
 
 
+// AI: Emits the final SETLIST for the constructor's array part; a multi-ret
+// AI: last field stores LUA_MULTRET values (unknown count) instead.
 static void lastlistfield (FuncState *fs, ConsControl *cc) {
   if (cc->tostore == 0) return;
   if (hasmultret(cc->v.k)) {
@@ -982,6 +1031,8 @@ static void lastlistfield (FuncState *fs, ConsControl *cc) {
 }
 
 
+// AI: Parses one array field (a plain expression), keeping the value in 'cc->v'
+// AI: and counting it as pending to be stored.
 static void listfield (LexState *ls, ConsControl *cc) {
   /* listfield -> exp */
   expr(ls, &cc->v);
@@ -989,6 +1040,9 @@ static void listfield (LexState *ls, ConsControl *cc) {
 }
 
 
+// AI: Parses one constructor field: a NAME is disambiguated by look-ahead (it
+// AI: is a record field only if followed by '='), '[' always starts a record
+// AI: field, anything else is a list field.
 static void field (LexState *ls, ConsControl *cc) {
   /* field -> listfield | recfield */
   switch(ls->t.token) {
@@ -1027,6 +1081,9 @@ static int maxtostore (FuncState *fs) {
 }
 
 
+// AI: Parses a table constructor: emits OP_NEWTABLE (plus a placeholder extra
+// AI: argument), fills array/record parts via 'field', and finally patches the
+// AI: table sizes with luaK_settablesize.
 static void constructor (LexState *ls, expdesc *t) {
   /* constructor -> '{' [ field { sep field } [sep] ] '}'
      sep -> ',' | ';' */
@@ -1058,12 +1115,18 @@ static void constructor (LexState *ls, expdesc *t) {
 /* }====================================================================== */
 
 
+// AI: Sets up the vararg flag/opcode: by default a vararg function uses hidden
+// AI: vararg arguments (OP_VARARGPREP), later switched to a vararg table only
+// AI: if the function actually indexes '...' (see luaK_finish).
 static void setvararg (FuncState *fs) {
   fs->f->flag |= PF_VAHID;  /* by default, use hidden vararg arguments */
   luaK_codeABC(fs, OP_VARARGPREP, 0, 0, 0);
 }
 
 
+// AI: Parses the parameter list: names become locals, '...' optionally with a
+// AI: vararg parameter name; sets numparams and reserves the parameter
+// AI: registers, marking the function as vararg when '...' was present.
 static void parlist (LexState *ls) {
   /* parlist -> [ {NAME ','} (NAME | '...') ] */
   FuncState *fs = ls->fs;
@@ -1102,6 +1165,9 @@ static void parlist (LexState *ls) {
 }
 
 
+// AI: Parses a function body: adds the prototype, opens a new FuncState, sets
+// AI: up 'self' for methods, parses params/statlist, then emits the closure
+// AI: instruction in the enclosing function ('e' becomes a VRELOC expression).
 static void body (LexState *ls, expdesc *e, int ismethod, int line) {
   /* body ->  '(' parlist ')' block END */
   FuncState new_fs;
@@ -1124,6 +1190,8 @@ static void body (LexState *ls, expdesc *e, int ismethod, int line) {
 }
 
 
+// AI: Parses an expression list 'expr {, expr}', closing each value into the
+// AI: next register, and returns the number of expressions read.
 static int explist (LexState *ls, expdesc *v) {
   /* explist -> expr { ',' expr } */
   int n = 1;  /* at least one expression */
@@ -1137,6 +1205,8 @@ static int explist (LexState *ls, expdesc *v) {
 }
 
 
+// AI: Parses a call's arguments: '(' explist ')' | constructor | string, emits
+// AI: the OP_CALL, and rewrites 'f' as a VCALL expression based at its register.
 static void funcargs (LexState *ls, expdesc *f) {
   FuncState *fs = ls->fs;
   expdesc args;
@@ -1195,6 +1265,9 @@ static void funcargs (LexState *ls, expdesc *f) {
 */
 
 
+// AI: Parses the primary expression: 'expr' or NAME. A parenthesized
+// AI: expression is discharged (variables become their values) so the result
+// AI: is a plain value, not an assignable l-value.
 static void primaryexp (LexState *ls, expdesc *v) {
   /* primaryexp -> NAME | '(' expr ')' */
   switch (ls->t.token) {
@@ -1217,6 +1290,8 @@ static void primaryexp (LexState *ls, expdesc *v) {
 }
 
 
+// AI: Parses a suffixed expression: a primary expression followed by any
+// AI: number of '.NAME' / '[' exp ']' / ':NAME funcargs' / funcargs suffixes.
 static void suffixedexp (LexState *ls, expdesc *v) {
   /* suffixedexp ->
        primaryexp { '.' NAME | '[' exp ']' | ':' NAME funcargs | funcargs } */
@@ -1254,6 +1329,8 @@ static void suffixedexp (LexState *ls, expdesc *v) {
 }
 
 
+// AI: Parses an atomic expression: constants, '...' (vararg), constructors,
+// AI: function bodies, or a suffixed expression; most cases consume the token.
 static void simpleexp (LexState *ls, expdesc *v) {
   /* simpleexp -> FLT | INT | STRING | NIL | TRUE | FALSE | ... |
                   constructor | FUNCTION body | suffixedexp */
@@ -1309,6 +1386,7 @@ static void simpleexp (LexState *ls, expdesc *v) {
 }
 
 
+// AI: Maps a token to its unary operator (OPR_*), or OPR_NOUNOPR if none.
 static UnOpr getunopr (int op) {
   switch (op) {
     case TK_NOT: return OPR_NOT;
@@ -1320,6 +1398,7 @@ static UnOpr getunopr (int op) {
 }
 
 
+// AI: Maps a token to its binary operator (OPR_*), or OPR_NOBINOPR if none.
 static BinOpr getbinopr (int op) {
   switch (op) {
     case '+': return OPR_ADD;
@@ -1374,6 +1453,9 @@ static const struct {
 ** subexpr -> (simpleexp | unop subexpr) { binop subexpr }
 ** where 'binop' is any binary operator with a priority higher than 'limit'
 */
+// AI: Parses an expression at a given priority: optional unary operator, then
+// AI: simple/sub expressions, extending while the next binary operator binds
+// AI: tighter than 'limit'. Returns the first unprocessed operator.
 static BinOpr subexpr (LexState *ls, expdesc *v, int limit) {
   BinOpr op;
   UnOpr uop;
@@ -1404,6 +1486,7 @@ static BinOpr subexpr (LexState *ls, expdesc *v, int limit) {
 }
 
 
+// AI: Parses a full expression at priority 0 (all binary operators included).
 static void expr (LexState *ls, expdesc *v) {
   subexpr(ls, v, 0);
 }
@@ -1419,6 +1502,7 @@ static void expr (LexState *ls, expdesc *v) {
 */
 
 
+// AI: Parses a block: 'statlist' enclosed in its own scope (enter/leaveblock).
 static void block (LexState *ls) {
   /* block -> statlist */
   FuncState *fs = ls->fs;
@@ -1484,6 +1568,8 @@ static void check_conflict (LexState *ls, struct LHS_assign *lh, expdesc *v) {
 
 
 /* Create code to store the "top" register in 'var' */
+// AI: Creates an expression for the "top" register (freereg - 1) and stores it
+// AI: into 'var', freeing that register in the process.
 static void storevartop (FuncState *fs, expdesc *var) {
   expdesc e;
   init_exp(&e, VNONRELOC, fs->freereg - 1);
@@ -1528,6 +1614,8 @@ static void restassign (LexState *ls, struct LHS_assign *lh, int nvars) {
 }
 
 
+// AI: Parses a condition: evaluates the expression and emits a test that jumps
+// AI: on false, returning the jump position (used to exit the enclosing block).
 static int cond (LexState *ls) {
   /* cond -> exp */
   expdesc v;
@@ -1538,6 +1626,8 @@ static int cond (LexState *ls) {
 }
 
 
+// AI: Parses a 'goto NAME' statement, recording a pending goto that is resolved
+// AI: when the target label is found (or reported undefined at scope end).
 static void gotostat (LexState *ls, int line) {
   TString *name = str_checkname(ls);  /* label's name */
   newgotoentry(ls, name, line);
@@ -1573,6 +1663,9 @@ static void checkrepeated (LexState *ls, TString *name) {
 }
 
 
+// AI: Parses a label: skips intervening no-op statements (';' and other
+// AI: labels), rejects repeated names, and creates the label entry (checking if
+// AI: it is the last no-op statement of its block).
 static void labelstat (LexState *ls, TString *name, int line) {
   /* label -> '::' NAME '::' */
   checknext(ls, TK_DBCOLON);  /* skip double colon */
@@ -1583,6 +1676,8 @@ static void labelstat (LexState *ls, TString *name, int line) {
 }
 
 
+// AI: Parses WHILE cond DO block END: the loop condition test and the back
+// AI: jump to 'whileinit' are patched once the block is compiled.
 static void whilestat (LexState *ls, int line) {
   /* whilestat -> WHILE cond DO block END */
   FuncState *fs = ls->fs;
@@ -1602,6 +1697,9 @@ static void whilestat (LexState *ls, int line) {
 }
 
 
+// AI: Parses REPEAT block UNTIL cond: two nested blocks (loop + scope) so the
+// AI: condition sees the block's locals; when upvalues escape, an OP_CLOSE is
+// AI: inserted in the repetition path.
 static void repeatstat (LexState *ls, int line) {
   /* repeatstat -> REPEAT block UNTIL cond */
   int condexit;
@@ -1685,6 +1783,8 @@ static void forbody (LexState *ls, int base, int line, int nvars, int isgen) {
 }
 
 
+// AI: Parses a numeric 'for': sets up three internal "(for state)" registers
+// AI: (initial value, limit, step) plus a const control variable, then the body.
 static void fornum (LexState *ls, TString *varname, int line) {
   /* fornum -> NAME = exp,exp[,exp] forbody */
   FuncState *fs = ls->fs;
@@ -1707,6 +1807,9 @@ static void fornum (LexState *ls, TString *varname, int line) {
 }
 
 
+// AI: Parses a generic 'for': declares iterator/state/closing internal
+// AI: variables plus the user's names, evaluates the explist into the state
+// AI: registers, and marks the closing variable as to-be-closed.
 static void forlist (LexState *ls, TString *indexname) {
   /* forlist -> NAME {,NAME} IN explist forbody */
   FuncState *fs = ls->fs;
@@ -1734,6 +1837,9 @@ static void forlist (LexState *ls, TString *indexname) {
 }
 
 
+// AI: Parses the FOR statement: enters the loop scope, then dispatches to the
+// AI: numeric ('=') or generic (',' / 'in') variants; breaks jump to the loop
+// AI: end patched in leaveblock.
 static void forstat (LexState *ls, int line) {
   /* forstat -> FOR (fornum | forlist) END */
   FuncState *fs = ls->fs;
@@ -1752,6 +1858,9 @@ static void forstat (LexState *ls, int line) {
 }
 
 
+// AI: Parses one IF/ELSEIF branch: condition + block; when another branch
+// AI: follows, an escape jump is appended to 'escapelist' and the false-exit of
+// AI: the condition is patched to the branch body.
 static void test_then_block (LexState *ls, int *escapelist) {
   /* test_then_block -> [IF | ELSEIF] cond THEN block */
   FuncState *fs = ls->fs;
@@ -1767,6 +1876,8 @@ static void test_then_block (LexState *ls, int *escapelist) {
 }
 
 
+// AI: Parses an IF statement: a chain of test_then_block branches plus an
+// AI: optional ELSE; all escape jumps are patched to the statement's end.
 static void ifstat (LexState *ls, int line) {
   /* ifstat -> IF cond THEN block {ELSEIF cond THEN block} [ELSE block] END */
   FuncState *fs = ls->fs;
@@ -1781,6 +1892,8 @@ static void ifstat (LexState *ls, int line) {
 }
 
 
+// AI: Parses 'local function NAME ...': creates the local before compiling the
+// AI: body so recursive references work; debug info starts only after the body.
 static void localfunc (LexState *ls) {
   expdesc b;
   FuncState *fs = ls->fs;
@@ -1793,6 +1906,8 @@ static void localfunc (LexState *ls) {
 }
 
 
+// AI: Reads a variable attribute '<const>' / '<close>' (or returns the
+// AI: default 'df' when none); unknown attributes raise an error.
 static lu_byte getvarattribute (LexState *ls, lu_byte df) {
   /* attrib -> ['<' NAME '>'] */
   if (testnext(ls, '<')) {
@@ -1810,6 +1925,8 @@ static lu_byte getvarattribute (LexState *ls, lu_byte df) {
 }
 
 
+// AI: Emits OP_TBC for a to-be-closed variable (if any) at the given level,
+// AI: marking the block so the right close instructions are generated later.
 static void checktoclose (FuncState *fs, int level) {
   if (level != -1) {  /* is there a to-be-closed variable? */
     marktobeclosed(fs);
@@ -1818,6 +1935,10 @@ static void checktoclose (FuncState *fs, int level) {
 }
 
 
+// AI: Parses a local declaration list: reads names with attributes, the
+// AI: optional '= explist', then adjusts assignments and enters scope. A single
+// AI: const variable with a compile-time-constant initializer is folded (RDKCTC)
+// AI: and needs no register.
 static void localstat (LexState *ls) {
   /* stat -> LOCAL NAME attrib { ',' NAME attrib } ['=' explist] */
   FuncState *fs = ls->fs;
@@ -1862,6 +1983,8 @@ static void localstat (LexState *ls) {
 }
 
 
+// AI: Adjusts a global attribute to the global kind range; to-be-closed is not
+// AI: allowed for globals (error).
 static lu_byte getglobalattribute (LexState *ls, lu_byte df) {
   lu_byte kind = getvarattribute(ls, df);
   switch (kind) {
@@ -1876,6 +1999,9 @@ static lu_byte getglobalattribute (LexState *ls, lu_byte df) {
 }
 
 
+// AI: Registers a global name in the environment and emits the nil-check
+// AI: instruction (OP_ERRNNIL) that raises when the global is already defined
+// AI: (used for explicit global declarations).
 static void checkglobal (LexState *ls, TString *varname, int line) {
   FuncState *fs = ls->fs;
   expdesc var;
@@ -1915,6 +2041,9 @@ static void initglobal (LexState *ls, int nvars, int firstidx, int n,
 }
 
 
+// AI: Parses the name list of a global declaration (with optional attributes),
+// AI: then reads the initializers ('= explist') if present; activates all
+// AI: declared variables at once.
 static void globalnames (LexState *ls, lu_byte defkind) {
   FuncState *fs = ls->fs;
   int nvars = 0;
@@ -1931,6 +2060,8 @@ static void globalnames (LexState *ls, lu_byte defkind) {
 }
 
 
+// AI: Parses a 'global' declaration: a name list (with attributes) or the
+// AI: catch-all '*'; NULL names represent '*' entries in the active variables.
 static void globalstat (LexState *ls) {
   /* globalstat -> (GLOBAL) attrib '*'
      globalstat -> (GLOBAL) attrib NAME attrib {',' NAME attrib} */
@@ -1947,6 +2078,9 @@ static void globalstat (LexState *ls) {
 }
 
 
+// AI: Parses 'global function NAME ...': declares the global, compiles the
+// AI: body, then stores the closure into the global's environment slot (with a
+// AI: nil check so redeclaration raises).
 static void globalfunc (LexState *ls, int line) {
   /* globalfunc -> (GLOBAL FUNCTION) NAME body */
   expdesc var, b;
@@ -1962,6 +2096,8 @@ static void globalfunc (LexState *ls, int line) {
 }
 
 
+// AI: Dispatches a 'global' statement to a global function declaration or a
+// AI: global name declaration.
 static void globalstatfunc (LexState *ls, int line) {
   /* stat -> GLOBAL globalfunc | GLOBAL globalstat */
   luaX_next(ls);  /* skip 'global' */
@@ -1972,6 +2108,8 @@ static void globalstatfunc (LexState *ls, int line) {
 }
 
 
+// AI: Parses a function name: NAME {.NAME} [:NAME]; returns 1 (method) when a
+// AI: colon field was found, leaving the receiver in 'v'.
 static int funcname (LexState *ls, expdesc *v) {
   /* funcname -> NAME {fieldsel} [':' NAME] */
   int ismethod = 0;
@@ -1986,6 +2124,8 @@ static int funcname (LexState *ls, expdesc *v) {
 }
 
 
+// AI: Parses 'function NAME body': compiles the body and stores the closure
+// AI: into the variable 'v' (which must not be read-only).
 static void funcstat (LexState *ls, int line) {
   /* funcstat -> FUNCTION funcname body */
   int ismethod;
@@ -1999,6 +2139,8 @@ static void funcstat (LexState *ls, int line) {
 }
 
 
+// AI: Parses an expression statement: either an assignment (LHS list plus
+// AI: '= explist') or a call; a bare call is patched to discard results.
 static void exprstat (LexState *ls) {
   /* stat -> func | assignment */
   FuncState *fs = ls->fs;
@@ -2017,6 +2159,8 @@ static void exprstat (LexState *ls) {
 }
 
 
+// AI: Parses RETURN [explist]: emits the return instruction; a single trailing
+// AI: call becomes a tail call (OP_TAILCALL) unless inside a to-be-closed scope.
 static void retstat (LexState *ls) {
   /* stat -> RETURN [explist] [';'] */
   FuncState *fs = ls->fs;
@@ -2049,6 +2193,9 @@ static void retstat (LexState *ls) {
 }
 
 
+// AI: Dispatches the current token to the proper statement rule; after any
+// AI: statement it resets freereg to the local-variable level (temporaries do
+// AI: not survive across statements). 'line' is saved for error messages.
 static void statement (LexState *ls) {
   int line = ls->linenumber;  /* may be needed for error messages */
   enterlevel(ls);
@@ -2168,6 +2315,9 @@ static void mainfunc (LexState *ls, FuncState *fs) {
 }
 
 
+// AI: Compiles the main function: an implicit vararg function with one upvalue
+// AI: (_ENV, always register 0). Parses the whole chunk and checks it ends with
+// AI: <eof>. Anchors the main closure in the scanner table during compilation.
 LClosure *luaY_parser (lua_State *L, ZIO *z, Table *anchor, Mbuffer *buff,
                        Dyndata *dyd, const char *name, int firstchar) {
   LexState lexstate;

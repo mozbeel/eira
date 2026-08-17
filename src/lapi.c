@@ -36,6 +36,10 @@ const char lua_ident[] =
   "$LuaVersion: " LUA_COPYRIGHT " $"
   "$LuaAuthors: " LUA_AUTHORS " $";
 
+// AI: This file implements the public C API from lua.h on top of the core.
+// AI: API functions translate an integer stack index into a TValue/StkId via
+// AI: index2value/index2stack, then operate on the value under lua_lock.
+
 
 
 /*
@@ -106,6 +110,9 @@ static StkId index2stack (lua_State *L, int idx) {
 }
 
 
+// AI: Ensures the stack has room for 'n' more values, growing it if needed and
+// AI: raising the current frame's top so the new slots are usable. Returns 1 on
+// AI: success, 0 if the stack cannot grow.
 LUA_API int lua_checkstack (lua_State *L, int n) {
   int res;
   CallInfo *ci;
@@ -123,6 +130,9 @@ LUA_API int lua_checkstack (lua_State *L, int n) {
 }
 
 
+// AI: Moves the 'n' top values from 'from' to the top of 'to'. Both states must
+// AI: share the same global_State (same Lua universe). Pops the values from
+// AI: 'from' and assumes 'to' already has room for them.
 LUA_API void lua_xmove (lua_State *from, lua_State *to, int n) {
   int i;
   if (from == to) return;
@@ -139,6 +149,8 @@ LUA_API void lua_xmove (lua_State *from, lua_State *to, int n) {
 }
 
 
+// AI: Sets the panic function called when an unprotected error reaches the
+// AI: boundary of the API. Returns the previously installed panic function.
 LUA_API lua_CFunction lua_atpanic (lua_State *L, lua_CFunction panicf) {
   lua_CFunction old;
   lua_lock(L);
@@ -149,6 +161,7 @@ LUA_API lua_CFunction lua_atpanic (lua_State *L, lua_CFunction panicf) {
 }
 
 
+// AI: Returns the numeric Lua version (LUA_VERSION_NUM); 'L' is unused here.
 LUA_API lua_Number lua_version (lua_State *L) {
   UNUSED(L);
   return LUA_VERSION_NUM;
@@ -171,11 +184,16 @@ LUA_API int lua_absindex (lua_State *L, int idx) {
 }
 
 
+// AI: Returns the number of values in the current function's stack frame, i.e.
+// AI: the distance between 'L->top' and the slot right after the function.
 LUA_API int lua_gettop (lua_State *L) {
   return cast_int(L->top.p - (L->ci->func.p + 1));
 }
 
 
+// AI: Sets the stack top to absolute index 'idx': positive indices pad with
+// AI: nils up to the new top, negative indices drop slots. When shrinking past
+// AI: a to-be-closed slot, its __close runs first.
 LUA_API void lua_settop (lua_State *L, int idx) {
   CallInfo *ci;
   StkId func, newtop;
@@ -195,6 +213,8 @@ LUA_API void lua_settop (lua_State *L, int idx) {
   }
   newtop = L->top.p + diff;
   if (diff < 0 && L->tbclist.p >= newtop) {
+    // AI: Shrinking past a to-be-closed slot runs its __close metamethod, which
+    // AI: may move the stack; the real top is assigned only after the close.
     lua_assert(ci->callstatus & CIST_TBC);
     newtop = luaF_close(L, newtop, CLOSEKTOP, 0);
   }
@@ -203,6 +223,8 @@ LUA_API void lua_settop (lua_State *L, int idx) {
 }
 
 
+// AI: Explicitly closes (runs __close on) the variable at 'idx'; only valid when
+// AI: that slot is the topmost to-be-closed slot. The slot is then set to nil.
 LUA_API void lua_closeslot (lua_State *L, int idx) {
   StkId level;
   lua_lock(L);
@@ -250,6 +272,8 @@ LUA_API void lua_rotate (lua_State *L, int idx, int n) {
 }
 
 
+// AI: Copies the value at 'fromidx' to 'toidx'; both indices may be upvalues or
+// AI: the registry. A GC write barrier is emitted when storing into an upvalue.
 LUA_API void lua_copy (lua_State *L, int fromidx, int toidx) {
   TValue *fr, *to;
   lua_lock(L);
@@ -265,6 +289,7 @@ LUA_API void lua_copy (lua_State *L, int fromidx, int toidx) {
 }
 
 
+// AI: Pushes a copy of the value at index 'idx' onto the stack top.
 LUA_API void lua_pushvalue (lua_State *L, int idx) {
   lua_lock(L);
   setobj2s(L, L->top.p, index2value(L, idx));
@@ -279,12 +304,15 @@ LUA_API void lua_pushvalue (lua_State *L, int idx) {
 */
 
 
+// AI: Returns the type tag of the value at 'idx', or LUA_TNONE if the index is
+// AI: not valid (including slots above the stack).
 LUA_API int lua_type (lua_State *L, int idx) {
   const TValue *o = index2value(L, idx);
   return (isvalid(L, o) ? ttype(o) : LUA_TNONE);
 }
 
 
+// AI: Returns the printable name of the given type tag, e.g. "number".
 LUA_API const char *lua_typename (lua_State *L, int t) {
   UNUSED(L);
   api_check(L, LUA_TNONE <= t && t < LUA_NUMTYPES, "invalid type");
@@ -292,18 +320,22 @@ LUA_API const char *lua_typename (lua_State *L, int t) {
 }
 
 
+// AI: True if the value at 'idx' is a light C function or a C closure.
 LUA_API int lua_iscfunction (lua_State *L, int idx) {
   const TValue *o = index2value(L, idx);
   return (ttislcf(o) || (ttisCclosure(o)));
 }
 
 
+// AI: True if the value at 'idx' is an integer (no conversion is attempted).
 LUA_API int lua_isinteger (lua_State *L, int idx) {
   const TValue *o = index2value(L, idx);
   return ttisinteger(o);
 }
 
 
+// AI: True if the value at 'idx' is a number or a string convertible to number;
+// AI: no value is pushed or modified.
 LUA_API int lua_isnumber (lua_State *L, int idx) {
   lua_Number n;
   const TValue *o = index2value(L, idx);
@@ -311,18 +343,22 @@ LUA_API int lua_isnumber (lua_State *L, int idx) {
 }
 
 
+// AI: True if the value at 'idx' is a string or convertible to one (number).
 LUA_API int lua_isstring (lua_State *L, int idx) {
   const TValue *o = index2value(L, idx);
   return (ttisstring(o) || cvt2str(o));
 }
 
 
+// AI: True if the value at 'idx' is full or light userdata.
 LUA_API int lua_isuserdata (lua_State *L, int idx) {
   const TValue *o = index2value(L, idx);
   return (ttisfulluserdata(o) || ttislightuserdata(o));
 }
 
 
+// AI: Raw (no metamethods) equality between the values at the two indices;
+// AI: returns 0 if either index is not valid.
 LUA_API int lua_rawequal (lua_State *L, int index1, int index2) {
   const TValue *o1 = index2value(L, index1);
   const TValue *o2 = index2value(L, index2);
@@ -330,6 +366,8 @@ LUA_API int lua_rawequal (lua_State *L, int index1, int index2) {
 }
 
 
+// AI: Performs arithmetic/bitwise operation 'op' on the two top stack values
+// AI: (unary ops reuse a fake second operand) and leaves the result in place.
 LUA_API void lua_arith (lua_State *L, int op) {
   lua_lock(L);
   if (op != LUA_OPUNM && op != LUA_OPBNOT)
@@ -346,6 +384,9 @@ LUA_API void lua_arith (lua_State *L, int op) {
 }
 
 
+// AI: Compares the values at 'index1' and 'index2' with 'op' (LUA_OPEQ/LT/LE),
+// AI: honoring the __eq/__lt/__le metamethods; returns 0 if either index is
+// AI: invalid. May call metamethods, hence the lock.
 LUA_API int lua_compare (lua_State *L, int index1, int index2, int op) {
   const TValue *o1;
   const TValue *o2;
@@ -366,6 +407,8 @@ LUA_API int lua_compare (lua_State *L, int index1, int index2, int op) {
 }
 
 
+// AI: Writes the string form of the number at 'idx' into 'buff' (without the
+// AI: trailing zero) and returns its length, or 0 if the value is not a number.
 LUA_API unsigned lua_numbertocstring (lua_State *L, int idx, char *buff) {
   const TValue *o = index2value(L, idx);
   if (ttisnumber(o)) {
@@ -378,6 +421,8 @@ LUA_API unsigned lua_numbertocstring (lua_State *L, int idx, char *buff) {
 }
 
 
+// AI: Parses 's' as a number and pushes it onto the stack, returning the number
+// AI: of characters consumed (0 if 's' is not a valid number).
 LUA_API size_t lua_stringtonumber (lua_State *L, const char *s) {
   size_t sz = luaO_str2num(s, s2v(L->top.p));
   if (sz != 0)
@@ -386,6 +431,8 @@ LUA_API size_t lua_stringtonumber (lua_State *L, const char *s) {
 }
 
 
+// AI: Returns the value at 'idx' converted to a float, setting '*pisnum' to
+// AI: whether the conversion succeeded. No error is raised on failure.
 LUA_API lua_Number lua_tonumberx (lua_State *L, int idx, int *pisnum) {
   lua_Number n = 0;
   const TValue *o = index2value(L, idx);
@@ -396,6 +443,8 @@ LUA_API lua_Number lua_tonumberx (lua_State *L, int idx, int *pisnum) {
 }
 
 
+// AI: Returns the value at 'idx' converted to an integer, setting '*pisnum' to
+// AI: whether the conversion succeeded. No error is raised on failure.
 LUA_API lua_Integer lua_tointegerx (lua_State *L, int idx, int *pisnum) {
   lua_Integer res = 0;
   const TValue *o = index2value(L, idx);
@@ -406,12 +455,17 @@ LUA_API lua_Integer lua_tointegerx (lua_State *L, int idx, int *pisnum) {
 }
 
 
+// AI: Returns the boolean truth of the value at 'idx' (only nil and false
+// AI: are false).
 LUA_API int lua_toboolean (lua_State *L, int idx) {
   const TValue *o = index2value(L, idx);
   return !l_isfalse(o);
 }
 
 
+// AI: Returns a pointer to the string at 'idx', converting numbers in place and
+// AI: setting '*len' (if non-NULL) to its length. For non-convertible values
+// AI: returns NULL (setting '*len' to 0) without raising an error.
 LUA_API const char *lua_tolstring (lua_State *L, int idx, size_t *len) {
   TValue *o;
   lua_lock(L);
@@ -424,6 +478,8 @@ LUA_API const char *lua_tolstring (lua_State *L, int idx, size_t *len) {
     }
     luaO_tostring(L, o);
     luaC_checkGC(L);
+    // AI: The number->string conversion may collect garbage and move the stack,
+    // AI: so re-resolve 'idx' before dereferencing the converted value.
     o = index2value(L, idx);  /* previous call may reallocate the stack */
   }
   lua_unlock(L);
@@ -434,6 +490,8 @@ LUA_API const char *lua_tolstring (lua_State *L, int idx, size_t *len) {
 }
 
 
+// AI: Returns the raw length of the value at 'idx' (strings, tables, full
+// AI: userdata). Metamethods (__len) are ignored.
 LUA_API lua_Unsigned lua_rawlen (lua_State *L, int idx) {
   const TValue *o = index2value(L, idx);
   switch (ttypetag(o)) {
@@ -452,6 +510,8 @@ LUA_API lua_Unsigned lua_rawlen (lua_State *L, int idx) {
 }
 
 
+// AI: Returns the C function of a light C function or C closure at 'idx', or
+// AI: NULL for any other value.
 LUA_API lua_CFunction lua_tocfunction (lua_State *L, int idx) {
   const TValue *o = index2value(L, idx);
   if (ttislcf(o)) return fvalue(o);
@@ -461,6 +521,8 @@ LUA_API lua_CFunction lua_tocfunction (lua_State *L, int idx) {
 }
 
 
+// AI: Extracts the raw pointer stored in a full or light userdata TValue, or
+// AI: NULL if 'o' is not userdata. Shared by lua_touserdata/lua_topointer.
 l_sinline void *touserdata (const TValue *o) {
   switch (ttype(o)) {
     case LUA_TUSERDATA: return getudatamem(uvalue(o));
@@ -470,12 +532,15 @@ l_sinline void *touserdata (const TValue *o) {
 }
 
 
+// AI: Returns the pointer stored in the full/light userdata at 'idx' (NULL for
+// AI: other types). For full userdata the pointer is its allocated block.
 LUA_API void *lua_touserdata (lua_State *L, int idx) {
   const TValue *o = index2value(L, idx);
   return touserdata(o);
 }
 
 
+// AI: Returns the lua_State embedded in a thread value at 'idx', else NULL.
 LUA_API lua_State *lua_tothread (lua_State *L, int idx) {
   const TValue *o = index2value(L, idx);
   return (!ttisthread(o)) ? NULL : thvalue(o);
@@ -511,6 +576,7 @@ LUA_API const void *lua_topointer (lua_State *L, int idx) {
 */
 
 
+// AI: Pushes a nil value onto the stack.
 LUA_API void lua_pushnil (lua_State *L) {
   lua_lock(L);
   setnilvalue2s(L->top.p);
@@ -519,6 +585,7 @@ LUA_API void lua_pushnil (lua_State *L) {
 }
 
 
+// AI: Pushes float 'n' onto the stack.
 LUA_API void lua_pushnumber (lua_State *L, lua_Number n) {
   lua_lock(L);
   setfltvalue(s2v(L->top.p), n);
@@ -527,6 +594,7 @@ LUA_API void lua_pushnumber (lua_State *L, lua_Number n) {
 }
 
 
+// AI: Pushes integer 'n' onto the stack.
 LUA_API void lua_pushinteger (lua_State *L, lua_Integer n) {
   lua_lock(L);
   setivalue(s2v(L->top.p), n);
@@ -552,6 +620,9 @@ LUA_API const char *lua_pushlstring (lua_State *L, const char *s, size_t len) {
 }
 
 
+// AI: Pushes a string whose memory is owned externally (allocated with 'falloc').
+// AI: Ownership is handed to Lua, which frees the buffer with 'falloc'/'ud' when
+// AI: the string is collected; returns the internal string's pointer.
 LUA_API const char *lua_pushexternalstring (lua_State *L,
 	        const char *s, size_t len, lua_Alloc falloc, void *ud) {
   TString *ts;
@@ -567,6 +638,8 @@ LUA_API const char *lua_pushexternalstring (lua_State *L,
 }
 
 
+// AI: Pushes a copy of C string 's' (nil if 's' is NULL) and returns a pointer
+// AI: to the internalized copy, valid while the string is on the stack.
 LUA_API const char *lua_pushstring (lua_State *L, const char *s) {
   lua_lock(L);
   if (s == NULL)
@@ -584,6 +657,8 @@ LUA_API const char *lua_pushstring (lua_State *L, const char *s) {
 }
 
 
+// AI: Formats 'fmt' with the va_list 'argp' and pushes the resulting string,
+// AI: returning a pointer to it.
 LUA_API const char *lua_pushvfstring (lua_State *L, const char *fmt,
                                       va_list argp) {
   const char *ret;
@@ -595,6 +670,8 @@ LUA_API const char *lua_pushvfstring (lua_State *L, const char *fmt,
 }
 
 
+// AI: Varargs wrapper for lua_pushvfstring: formats 'fmt' and pushes the
+// AI: result, returning a pointer to the resulting string.
 LUA_API const char *lua_pushfstring (lua_State *L, const char *fmt, ...) {
   const char *ret;
   va_list argp;
@@ -606,6 +683,9 @@ LUA_API const char *lua_pushfstring (lua_State *L, const char *fmt, ...) {
 }
 
 
+// AI: Pops 'n' values as upvalues and pushes a C closure of 'fn' over them
+// AI: (a plain light C function when 'n' == 0). The values are copied without a
+// AI: write barrier because the new closure is still white in the GC sense.
 LUA_API void lua_pushcclosure (lua_State *L, lua_CFunction fn, int n) {
   lua_lock(L);
   if (n == 0) {
@@ -633,6 +713,7 @@ LUA_API void lua_pushcclosure (lua_State *L, lua_CFunction fn, int n) {
 }
 
 
+// AI: Pushes boolean 'b' onto the stack.
 LUA_API void lua_pushboolean (lua_State *L, int b) {
   lua_lock(L);
   if (b)
@@ -644,6 +725,7 @@ LUA_API void lua_pushboolean (lua_State *L, int b) {
 }
 
 
+// AI: Pushes a light userdata wrapping pointer 'p' (no allocation, no __gc).
 LUA_API void lua_pushlightuserdata (lua_State *L, void *p) {
   lua_lock(L);
   setpvalue(s2v(L->top.p), p);
@@ -652,6 +734,8 @@ LUA_API void lua_pushlightuserdata (lua_State *L, void *p) {
 }
 
 
+// AI: Pushes this state's own thread value; returns 1 if 'L' is the main thread
+// AI: of its global_State (so 0 signals a newly-created coroutine).
 LUA_API int lua_pushthread (lua_State *L) {
   lua_lock(L);
   setthvalue(L, s2v(L->top.p), L);
@@ -667,6 +751,9 @@ LUA_API int lua_pushthread (lua_State *L) {
 */
 
 
+// AI: Core of lua_getfield: pushes t[k] via the fast path (luaH_getstr) and
+// AI: falls back to the full __index chain when the key is missing. Returns the
+// AI: type tag of the value left on the stack.
 static int auxgetstr (lua_State *L, const TValue *t, const char *k) {
   lu_byte tag;
   TString *str = luaS_new(L, k);
@@ -696,6 +783,8 @@ static void getGlobalTable (lua_State *L, TValue *gt) {
 }
 
 
+// AI: Pushes the value of global 'name' (looked up in the _G table stored in
+// AI: the registry) and returns the type of the pushed value.
 LUA_API int lua_getglobal (lua_State *L, const char *name) {
   TValue gt;
   lua_lock(L);
@@ -704,6 +793,8 @@ LUA_API int lua_getglobal (lua_State *L, const char *name) {
 }
 
 
+// AI: Pops the key at the top and pushes t[key] for the table at 'idx',
+// AI: invoking __index when the raw key is absent. Returns the result's type.
 LUA_API int lua_gettable (lua_State *L, int idx) {
   lu_byte tag;
   TValue *t;
@@ -718,12 +809,16 @@ LUA_API int lua_gettable (lua_State *L, int idx) {
 }
 
 
+// AI: Pushes t[name] for the table at 'idx' (honoring __index) and returns the
+// AI: type of the pushed value.
 LUA_API int lua_getfield (lua_State *L, int idx, const char *k) {
   lua_lock(L);
   return auxgetstr(L, index2value(L, idx), k);
 }
 
 
+// AI: Pushes t[n] for the table at 'idx' (honoring __index) and returns the
+// AI: type of the pushed value.
 LUA_API int lua_geti (lua_State *L, int idx, lua_Integer n) {
   TValue *t;
   lu_byte tag;
@@ -741,6 +836,8 @@ LUA_API int lua_geti (lua_State *L, int idx, lua_Integer n) {
 }
 
 
+// AI: Common tail for the raw get family: pushes nil instead of copying empty
+// AI: results, bumps the top, and returns the resulting type tag.
 static int finishrawget (lua_State *L, lu_byte tag) {
   if (tagisempty(tag))  /* avoid copying empty items to the stack */
     setnilvalue2s(L->top.p);
@@ -750,6 +847,7 @@ static int finishrawget (lua_State *L, lu_byte tag) {
 }
 
 
+// AI: Resolves the table at 'idx', raising "table expected" if it is not one.
 l_sinline Table *gettable (lua_State *L, int idx) {
   TValue *t = index2value(L, idx);
   api_check(L, ttistable(t), "table expected");
@@ -757,6 +855,8 @@ l_sinline Table *gettable (lua_State *L, int idx) {
 }
 
 
+// AI: Pops the key at the top and pushes t[key] for the table at 'idx' without
+// AI: invoking metamethods; returns the type of the pushed value.
 LUA_API int lua_rawget (lua_State *L, int idx) {
   Table *t;
   lu_byte tag;
@@ -769,6 +869,8 @@ LUA_API int lua_rawget (lua_State *L, int idx) {
 }
 
 
+// AI: Raw access t[n]: pushes the integer-indexed element of the table at 'idx'
+// AI: (no metamethods) and returns the type of the pushed value.
 LUA_API int lua_rawgeti (lua_State *L, int idx, lua_Integer n) {
   Table *t;
   lu_byte tag;
@@ -779,6 +881,8 @@ LUA_API int lua_rawgeti (lua_State *L, int idx, lua_Integer n) {
 }
 
 
+// AI: Raw access keyed by pointer 'p' (seen as a light userdata): pushes the
+// AI: element of the table at 'idx' and returns its type.
 LUA_API int lua_rawgetp (lua_State *L, int idx, const void *p) {
   Table *t;
   TValue k;
@@ -789,6 +893,8 @@ LUA_API int lua_rawgetp (lua_State *L, int idx, const void *p) {
 }
 
 
+// AI: Creates an empty table pre-sized for 'narray' array and 'nrec' hash
+// AI: entries and pushes it onto the stack.
 LUA_API void lua_createtable (lua_State *L, int narray, int nrec) {
   Table *t;
   lua_lock(L);
@@ -802,6 +908,9 @@ LUA_API void lua_createtable (lua_State *L, int narray, int nrec) {
 }
 
 
+// AI: Pushes the metatable of the value at 'objindex' (per-type default for
+// AI: non-table/userdata values); returns 1 if a metatable exists, else 0 with
+// AI: nothing pushed.
 LUA_API int lua_getmetatable (lua_State *L, int objindex) {
   const TValue *obj;
   Table *mt;
@@ -829,6 +938,8 @@ LUA_API int lua_getmetatable (lua_State *L, int objindex) {
 }
 
 
+// AI: Pushes the n-th (1-based) associated userdata value of the full userdata
+// AI: at 'idx'; pushes nil and returns LUA_TNONE when 'n' is out of range.
 LUA_API int lua_getiuservalue (lua_State *L, int idx, int n) {
   TValue *o;
   int t;
@@ -856,6 +967,9 @@ LUA_API int lua_getiuservalue (lua_State *L, int idx, int n) {
 /*
 ** t[k] = value at the top of the stack (where 'k' is a string)
 */
+// AI: Fast path assigns t[k] = top value when no __newindex chain is needed;
+// AI: otherwise the key is re-pushed as a TValue and the full metamethod path
+// AI: runs. Unlocks 'L' here; callers are responsible for locking.
 static void auxsetstr (lua_State *L, const TValue *t, const char *k) {
   int hres;
   TString *str = luaS_new(L, k);
@@ -875,6 +989,7 @@ static void auxsetstr (lua_State *L, const TValue *t, const char *k) {
 }
 
 
+// AI: Pops the top value and assigns it to global 'name' (i.e. _G[name] = v).
 LUA_API void lua_setglobal (lua_State *L, const char *name) {
   TValue gt;
   lua_lock(L);  /* unlock done in 'auxsetstr' */
@@ -883,6 +998,8 @@ LUA_API void lua_setglobal (lua_State *L, const char *name) {
 }
 
 
+// AI: Pops key and value and performs t[key] = value for the table at 'idx',
+// AI: running __newindex when the key is absent or a metatable is involved.
 LUA_API void lua_settable (lua_State *L, int idx) {
   TValue *t;
   int hres;
@@ -899,12 +1016,14 @@ LUA_API void lua_settable (lua_State *L, int idx) {
 }
 
 
+// AI: Pops the top value and performs t[name] = value (honoring __newindex).
 LUA_API void lua_setfield (lua_State *L, int idx, const char *k) {
   lua_lock(L);  /* unlock done in 'auxsetstr' */
   auxsetstr(L, index2value(L, idx), k);
 }
 
 
+// AI: Pops the top value and performs t[n] = value (honoring __newindex).
 LUA_API void lua_seti (lua_State *L, int idx, lua_Integer n) {
   TValue *t;
   int hres;
@@ -924,6 +1043,9 @@ LUA_API void lua_seti (lua_State *L, int idx, lua_Integer n) {
 }
 
 
+// AI: Raw (no metamethods) assignment t[key] = top value, popping 'n' values in
+// AI: total. Emits a barrier to keep the table reachable and invalidates any
+// AI: cached __index/__newindex fast path in the table.
 static void aux_rawset (lua_State *L, int idx, TValue *key, int n) {
   Table *t;
   lua_lock(L);
@@ -937,11 +1059,14 @@ static void aux_rawset (lua_State *L, int idx, TValue *key, int n) {
 }
 
 
+// AI: Pops key and value and raw-assigns t[key] = value for the table at 'idx'.
 LUA_API void lua_rawset (lua_State *L, int idx) {
   aux_rawset(L, idx, s2v(L->top.p - 2), 2);
 }
 
 
+// AI: Raw assignment keyed by pointer 'p' (light userdata): pops the top value
+// AI: and stores it in the table at 'idx'.
 LUA_API void lua_rawsetp (lua_State *L, int idx, const void *p) {
   TValue k;
   setpvalue(&k, cast_voidp(p));
@@ -949,6 +1074,7 @@ LUA_API void lua_rawsetp (lua_State *L, int idx, const void *p) {
 }
 
 
+// AI: Raw assignment t[n] = value, popping the value from the stack.
 LUA_API void lua_rawseti (lua_State *L, int idx, lua_Integer n) {
   Table *t;
   lua_lock(L);
@@ -961,6 +1087,9 @@ LUA_API void lua_rawseti (lua_State *L, int idx, lua_Integer n) {
 }
 
 
+// AI: Pops the top value as the new metatable of the object at 'objindex' (nil
+// AI: removes it). Non-table/userdata objects get a per-type metatable, and
+// AI: tables/userdata are registered for __gc finalization when needed.
 LUA_API int lua_setmetatable (lua_State *L, int objindex) {
   TValue *obj;
   Table *mt;
@@ -1001,6 +1130,8 @@ LUA_API int lua_setmetatable (lua_State *L, int objindex) {
 }
 
 
+// AI: Pops the top value and stores it as the n-th (1-based) associated value
+// AI: of the full userdata at 'idx'; returns 0 if 'n' is out of range.
 LUA_API int lua_setiuservalue (lua_State *L, int idx, int n) {
   TValue *o;
   int res;
@@ -1034,6 +1165,9 @@ LUA_API int lua_setiuservalue (lua_State *L, int idx, int n) {
                    "invalid number of results"))
 
 
+// AI: Calls the function located 'nargs' slots below the top, popping the args
+// AI: and leaving 'nresults' results (LUA_MULTRET keeps them all). When 'k' is
+// AI: given and the call can yield, 'k'/'ctx' are saved for later continuation.
 LUA_API void lua_callk (lua_State *L, int nargs, int nresults,
                         lua_KContext ctx, lua_KFunction k) {
   StkId func;
@@ -1045,6 +1179,9 @@ LUA_API void lua_callk (lua_State *L, int nargs, int nresults,
   checkresults(L, nargs, nresults);
   func = L->top.p - (nargs+1);
   if (k != NULL && yieldable(L)) {  /* need to prepare continuation? */
+    // AI: Save 'k'/'ctx' in the current CallInfo so that, if the call yields,
+    // AI: the interpreter resumes by calling 'k' with 'ctx'. Yieldable calls are
+    // AI: only possible from C functions, never from inside Lua hooks.
     L->ci->u.c.k = k;  /* save continuation */
     L->ci->u.c.ctx = ctx;  /* save context */
     luaD_call(L, func, nresults);  /* do the call */
@@ -1066,6 +1203,8 @@ struct CallS {  /* data to 'f_call' */
 };
 
 
+// AI: Adapter used as the protected-call action: performs the actual call from
+// AI: inside luaD_pcall so any error is caught and returned as a status.
 static void f_call (lua_State *L, void *ud) {
   struct CallS *c = cast(struct CallS *, ud);
   luaD_callnoyield(L, c->func, c->nresults);
@@ -1073,6 +1212,10 @@ static void f_call (lua_State *L, void *ud) {
 
 
 
+// AI: Protected version of lua_callk: calls the function with an optional error
+// AI: handler ('errfunc') and returns an LUA_ERR* status instead of raising.
+// AI: With a continuation the call may yield and error recovery is deferred to
+// AI: 'resume' via the CIST_YPCALL flag.
 LUA_API int lua_pcallk (lua_State *L, int nargs, int nresults, int errfunc,
                         lua_KContext ctx, lua_KFunction k) {
   struct CallS c;
@@ -1097,6 +1240,9 @@ LUA_API int lua_pcallk (lua_State *L, int nargs, int nresults, int errfunc,
     status = luaD_pcall(L, f_call, &c, savestack(L, c.func), func);
   }
   else {  /* prepare continuation (call is already protected by 'resume') */
+    // AI: With a continuation the call may yield, so protection is deferred to
+    // AI: the resuming thread: CIST_YPCALL plus the saved 'errfunc' let 'resume'
+    // AI: run the error handler and then call 'k' if the call fails.
     CallInfo *ci = L->ci;
     ci->u.c.k = k;  /* save continuation */
     ci->u.c.ctx = ctx;  /* save context */
@@ -1117,6 +1263,9 @@ LUA_API int lua_pcallk (lua_State *L, int nargs, int nresults, int errfunc,
 }
 
 
+// AI: Parses a chunk fed by 'reader'/'data' and pushes the resulting function.
+// AI: If the function has at least one upvalue (usually _ENV), its first upvalue
+// AI: is initialized with the global table from the registry.
 LUA_API int lua_load (lua_State *L, lua_Reader reader, void *data,
                       const char *chunkname, const char *mode) {
   ZIO z;
@@ -1160,11 +1309,16 @@ LUA_API int lua_dump (lua_State *L, lua_Writer writer, void *data, int strip) {
 }
 
 
+// AI: Returns the thread status: LUA_OK, LUA_YIELD, or an LUA_ERR* code left
+// AI: from a failed protected call.
 LUA_API int lua_status (lua_State *L) {
   return APIstatus(L->status);
 }
 
 
+// AI: Dispatcher for all GC controls selected by 'what' (stop/restart/step/
+// AI: collect/count/mode/params...). Returns -1 if the collector is internally
+// AI: stopped (e.g. mid-collection) or for an invalid option.
 /*
 ** Garbage-collection function
 */
@@ -1205,6 +1359,9 @@ LUA_API int lua_gc (lua_State *L, int what, ...) {
       l_mem newdebt;
       int work = 0;  /* true if GC did some work */
       g->gcstp = 0;  /* allow GC to run (other bits must be zero here) */
+      // AI: The step amount 'n' (in Kbytes) is converted into a GC debt; the
+      // AI: collector runs until the debt drops below zero. Zero/non-positive
+      // AI: 'n' forces at least one basic step; 1 is returned when a cycle ends.
       if (n <= 0)
         newdebt = 0;  /* force to run one basic step */
       else if (g->GCdebt >= n - MAX_LMEM)  /* no overflow? */
@@ -1255,6 +1412,8 @@ LUA_API int lua_gc (lua_State *L, int what, ...) {
 */
 
 
+// AI: Raises the value at the top of the stack as an error; never returns. The
+// AI: shared memory-error message is special-cased to raise a memory error.
 LUA_API int lua_error (lua_State *L) {
   TValue *errobj;
   lua_lock(L);
@@ -1270,6 +1429,9 @@ LUA_API int lua_error (lua_State *L) {
 }
 
 
+// AI: Continues a raw traversal of table 'idx': the top holds the previous key.
+// AI: If a next pair exists its key and value are pushed (returns 1), else the
+// AI: key is popped (returns 0).
 LUA_API int lua_next (lua_State *L, int idx) {
   Table *t;
   int more;
@@ -1286,6 +1448,9 @@ LUA_API int lua_next (lua_State *L, int idx) {
 }
 
 
+// AI: Marks the variable at 'idx' as to-be-closed: it becomes a to-be-closed
+// AI: upvalue whose __close runs when the current function returns (or earlier
+// AI: via lua_closeslot). Slots must be marked in increasing index order.
 LUA_API void lua_toclose (lua_State *L, int idx) {
   StkId o;
   lua_lock(L);
@@ -1297,6 +1462,8 @@ LUA_API void lua_toclose (lua_State *L, int idx) {
 }
 
 
+// AI: Concatenates the 'n' top values into one string, leaving the result on
+// AI: the stack. With 'n' <= 0 an empty string is pushed instead.
 LUA_API void lua_concat (lua_State *L, int n) {
   lua_lock(L);
   if (n > 0) {
@@ -1312,6 +1479,7 @@ LUA_API void lua_concat (lua_State *L, int n) {
 }
 
 
+// AI: Pushes the length of the value at 'idx', honoring the __len metamethod.
 LUA_API void lua_len (lua_State *L, int idx) {
   TValue *t;
   lua_lock(L);
@@ -1322,6 +1490,8 @@ LUA_API void lua_len (lua_State *L, int idx) {
 }
 
 
+// AI: Returns the currently installed memory-allocation function, storing its
+// AI: user data in '*ud' if provided.
 LUA_API lua_Alloc lua_getallocf (lua_State *L, void **ud) {
   lua_Alloc f;
   lua_lock(L);
@@ -1332,6 +1502,7 @@ LUA_API lua_Alloc lua_getallocf (lua_State *L, void **ud) {
 }
 
 
+// AI: Installs a new memory-allocation function 'f' with user data 'ud'.
 LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud) {
   lua_lock(L);
   G(L)->ud = ud;
@@ -1340,6 +1511,7 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud) {
 }
 
 
+// AI: Installs the warning function 'f' (with user data 'ud') for the state.
 void lua_setwarnf (lua_State *L, lua_WarnFunction f, void *ud) {
   lua_lock(L);
   G(L)->ud_warn = ud;
@@ -1348,6 +1520,8 @@ void lua_setwarnf (lua_State *L, lua_WarnFunction f, void *ud) {
 }
 
 
+// AI: Emits warning 'msg' through the installed warning function; 'tocont' != 0
+// AI: continues a previously unfinished message instead of starting a new one.
 void lua_warning (lua_State *L, const char *msg, int tocont) {
   lua_lock(L);
   luaE_warning(L, msg, tocont);
@@ -1356,6 +1530,8 @@ void lua_warning (lua_State *L, const char *msg, int tocont) {
 
 
 
+// AI: Creates a full userdata with 'size' bytes plus 'nuvalue' associated
+// AI: values, pushes it, and returns a pointer to its memory block.
 LUA_API void *lua_newuserdatauv (lua_State *L, size_t size, int nuvalue) {
   Udata *u;
   lua_lock(L);
@@ -1370,6 +1546,9 @@ LUA_API void *lua_newuserdatauv (lua_State *L, size_t size, int nuvalue) {
 
 
 
+// AI: Resolves upvalue 'n' (1-based) of closure 'fi' into '*val' and records its
+// AI: owning GCObject in '*owner'. Returns the upvalue's name (for Lua closures,
+// AI: "(no name)" if unnamed) or NULL for invalid 'n'/non-closures.
 static const char *aux_upvalue (TValue *fi, int n, TValue **val,
                                 GCObject **owner) {
   switch (ttypetag(fi)) {
@@ -1397,6 +1576,8 @@ static const char *aux_upvalue (TValue *fi, int n, TValue **val,
 }
 
 
+// AI: Pushes upvalue 'n' of the closure at 'funcindex' and returns its name, or
+// AI: NULL (nothing pushed) when the index is out of range.
 LUA_API const char *lua_getupvalue (lua_State *L, int funcindex, int n) {
   const char *name;
   TValue *val = NULL;  /* to avoid warnings */
@@ -1411,6 +1592,8 @@ LUA_API const char *lua_getupvalue (lua_State *L, int funcindex, int n) {
 }
 
 
+// AI: Pops the top value and stores it as upvalue 'n' of the closure at
+// AI: 'funcindex', emitting a write barrier; returns the upvalue's name or NULL.
 LUA_API const char *lua_setupvalue (lua_State *L, int funcindex, int n) {
   const char *name;
   TValue *val = NULL;  /* to avoid warnings */
@@ -1430,6 +1613,9 @@ LUA_API const char *lua_setupvalue (lua_State *L, int funcindex, int n) {
 }
 
 
+// AI: Returns the UpVal** slot (f->upvals[n-1]) of the Lua closure at 'fidx',
+// AI: or a pointer to a static NULL when 'n' is out of range so callers can test
+// AI: it. Also returns the closure in '*pf' when requested.
 static UpVal **getupvalref (lua_State *L, int fidx, int n, LClosure **pf) {
   static const UpVal *const nullup = NULL;
   LClosure *f;
@@ -1444,6 +1630,9 @@ static UpVal **getupvalref (lua_State *L, int fidx, int n, LClosure **pf) {
 }
 
 
+// AI: Returns a unique, stable pointer identifying upvalue 'n' (an UpVal for Lua
+// AI: closures, a slot address for C closures); NULL for light functions or bad
+// AI: indices.
 LUA_API void *lua_upvalueid (lua_State *L, int fidx, int n) {
   TValue *fi = index2value(L, fidx);
   switch (ttypetag(fi)) {
@@ -1466,6 +1655,8 @@ LUA_API void *lua_upvalueid (lua_State *L, int fidx, int n) {
 }
 
 
+// AI: Makes upvalue (fidx1,n1) share the same UpVal as (fidx2,n2), so both
+// AI: closures read/write the same cell; a barrier keeps the upvalue reachable.
 LUA_API void lua_upvaluejoin (lua_State *L, int fidx1, int n1,
                                             int fidx2, int n2) {
   LClosure *f1;

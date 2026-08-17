@@ -35,6 +35,8 @@ LUAI_DDEF const char *const luaT_typenames_[LUA_TOTALTYPES] = {
 };
 
 
+// AI: Interns all metamethod names (__index ... __close, in enum TMS order)
+// AI: into G->tmname[] and fixes them so the GC never collects them.
 void luaT_init (lua_State *L) {
   static const char *const luaT_eventname[] = {  /* ORDER TM */
     "__index", "__newindex",
@@ -57,6 +59,8 @@ void luaT_init (lua_State *L) {
 ** function to be used with macro "fasttm": optimized for absence of
 ** tag methods
 */
+// AI: Fast metamethod lookup in a metatable ('events'): on a miss it caches
+// AI: the absence as a flag bit in 'events->flags' and returns NULL.
 const TValue *luaT_gettm (Table *events, TMS event, TString *ename) {
   const TValue *tm = luaH_Hgetshortstr(events, ename);
   lua_assert(event <= TM_EQ);
@@ -68,6 +72,9 @@ const TValue *luaT_gettm (Table *events, TMS event, TString *ename) {
 }
 
 
+// AI: Finds the metatable for any value 'o' (tables/userdata have their own;
+// AI: other types use G(L)->mt[type]) and returns its metamethod for 'event',
+// AI: or the shared nilvalue when none exists.
 const TValue *luaT_gettmbyobj (lua_State *L, const TValue *o, TMS event) {
   Table *mt;
   switch (ttype(o)) {
@@ -88,6 +95,8 @@ const TValue *luaT_gettmbyobj (lua_State *L, const TValue *o, TMS event) {
 ** Return the name of the type of an object. For tables and userdata
 ** with metatable, use their '__name' metafield, if present.
 */
+// AI: Type name used in error messages: honors a '__name' string metafield on
+// AI: tables/userdata, falling back to the standard type name.
 const char *luaT_objtypename (lua_State *L, const TValue *o) {
   Table *mt;
   if ((ttistable(o) && (mt = hvalue(o)->metatable) != NULL) ||
@@ -100,6 +109,8 @@ const char *luaT_objtypename (lua_State *L, const TValue *o) {
 }
 
 
+// AI: Pushes metamethod 'f' plus three arguments on the stack (assumes
+// AI: EXTRA_STACK) and calls it; yields only when invoked from Lua code.
 void luaT_callTM (lua_State *L, const TValue *f, const TValue *p1,
                   const TValue *p2, const TValue *p3) {
   StkId func = L->top.p;
@@ -116,6 +127,8 @@ void luaT_callTM (lua_State *L, const TValue *f, const TValue *p1,
 }
 
 
+// AI: Calls a binary metamethod 'f' with two operands, moves its single result
+// AI: to 'res', and returns the tag of that result.
 lu_byte luaT_callTMres (lua_State *L, const TValue *f, const TValue *p1,
                         const TValue *p2, StkId res) {
   ptrdiff_t result = savestack(L, res);
@@ -135,6 +148,8 @@ lu_byte luaT_callTMres (lua_State *L, const TValue *f, const TValue *p1,
 }
 
 
+// AI: Resolves a binary operation's metamethod, trying operand p1 then p2;
+// AI: returns -1 when neither provides one, else the result's tag.
 static int callbinTM (lua_State *L, const TValue *p1, const TValue *p2,
                       StkId res, TMS event) {
   const TValue *tm = luaT_gettmbyobj(L, p1, event);  /* try first operand */
@@ -147,6 +162,8 @@ static int callbinTM (lua_State *L, const TValue *p1, const TValue *p2,
 }
 
 
+// AI: Tries the binary metamethod and, when neither operand has one, raises an
+// AI: "attempt to perform ..." error (specialized for bitwise operations).
 void luaT_trybinTM (lua_State *L, const TValue *p1, const TValue *p2,
                     StkId res, TMS event) {
   if (l_unlikely(callbinTM(L, p1, p2, res, event) < 0)) {
@@ -170,6 +187,8 @@ void luaT_trybinTM (lua_State *L, const TValue *p1, const TValue *p2,
 ** The use of 'p1' after 'callbinTM' is safe because, when a tag
 ** method is not found, 'callbinTM' cannot change the stack.
 */
+// AI: Tries the __concat metamethod on the two values at the top of the
+// AI: stack, raising a concat error if none is available.
 void luaT_tryconcatTM (lua_State *L) {
   StkId p1 = L->top.p - 2;  /* first argument */
   if (l_unlikely(callbinTM(L, s2v(p1), s2v(p1 + 1), p1, TM_CONCAT) < 0))
@@ -177,6 +196,8 @@ void luaT_tryconcatTM (lua_State *L) {
 }
 
 
+// AI: Tries a binary metamethod, swapping the operands when 'flip' is set
+// AI: (needed for non-commutative operations such as shift and subtraction).
 void luaT_trybinassocTM (lua_State *L, const TValue *p1, const TValue *p2,
                                        int flip, StkId res, TMS event) {
   if (flip)
@@ -186,6 +207,7 @@ void luaT_trybinassocTM (lua_State *L, const TValue *p1, const TValue *p2,
 }
 
 
+// AI: Tries a binary metamethod where the second operand is the integer i2.
 void luaT_trybiniTM (lua_State *L, const TValue *p1, lua_Integer i2,
                                    int flip, StkId res, TMS event) {
   TValue aux;
@@ -197,6 +219,8 @@ void luaT_trybiniTM (lua_State *L, const TValue *p1, lua_Integer i2,
 /*
 ** Calls an order tag method.
 */
+// AI: Calls an order metamethod (__lt/__le) for two values, returning its
+// AI: truth value; raises an order error when no metamethod exists.
 int luaT_callorderTM (lua_State *L, const TValue *p1, const TValue *p2,
                       TMS event) {
   int tag = callbinTM(L, p1, p2, L->top.p, event);  /* try original event */
@@ -207,6 +231,8 @@ int luaT_callorderTM (lua_State *L, const TValue *p1, const TValue *p2,
 }
 
 
+// AI: Order comparison where the second operand is an integer 'v2' (turned
+// AI: into a float if 'isfloat'), also handling flipped argument order.
 int luaT_callorderiTM (lua_State *L, const TValue *p1, int v2,
                        int flip, int isfloat, TMS event) {
   TValue aux; const TValue *p2;
@@ -228,6 +254,8 @@ int luaT_callorderiTM (lua_State *L, const TValue *p1, int v2,
 ** Create a vararg table at the top of the stack, with 'n' elements
 ** starting at 'f'.
 */
+// AI: Builds a vararg table at the top of the stack: field 'n' holds the arg
+// AI: count and fields 1..n map to the extra args starting at stack slot 'f'.
 static void createvarargtab (lua_State *L, StkId f, int n) {
   int i;
   TValue key, value;
@@ -252,6 +280,9 @@ static void createvarargtab (lua_State *L, StkId f, int n) {
 ** final stack: func nil ... nil extra1 ... func arg1 ... argn
 **                                          ^ ci->func
 */
+// AI: Reorganizes a vararg frame without a vararg table: copies the function
+// AI: and moves the fixed parameters above it, so the extra arguments end up
+// AI: in hidden slots below ci->func.
 static void buildhiddenargs (lua_State *L, CallInfo *ci, const Proto *p,
                              int totalargs, int nfixparams, int nextra) {
   int i;
@@ -269,6 +300,9 @@ static void buildhiddenargs (lua_State *L, CallInfo *ci, const Proto *p,
 }
 
 
+// AI: Adjusts a vararg function's frame: either creates a vararg table
+// AI: (PF_VATAB) or hides the extra args and nils the vararg register
+// AI: (PF_VAHID).
 void luaT_adjustvarargs (lua_State *L, CallInfo *ci, const Proto *p) {
   int totalargs = cast_int(L->top.p - ci->func.p) - 1;
   int nfixparams = p->numparams;
@@ -289,6 +323,8 @@ void luaT_adjustvarargs (lua_State *L, CallInfo *ci, const Proto *p) {
 }
 
 
+// AI: Resolves a vararg access: an integral 'rc' indexes the hidden args, the
+// AI: string "n" yields their count, and anything else produces nil.
 void luaT_getvararg (CallInfo *ci, StkId ra, TValue *rc) {
   int nextra = ci->u.l.nextraargs;
   lua_Integer n;
@@ -318,6 +354,8 @@ void luaT_getvararg (CallInfo *ci, StkId ra, TValue *rc) {
 ** has a proper value (non-negative integer not larger than the stack
 ** limit).
 */
+// AI: Counts the extra arguments of a vararg frame: cached in the CallInfo
+// AI: when hidden, otherwise read (and validated) from the vararg table's 'n'.
 static int getnumargs (lua_State *L, CallInfo *ci, Table *h) {
   if (h == NULL)  /* no vararg table? */
     return ci->u.l.nextraargs;
@@ -335,6 +373,9 @@ static int getnumargs (lua_State *L, CallInfo *ci, Table *h) {
 ** Get 'wanted' vararg arguments and put them in 'where'. 'vatab' is
 ** the register of the vararg table or -1 if there is no vararg table.
 */
+// AI: Copies 'wanted' vararg values into 'where' (all of them when 'wanted' is
+// AI: negative), reading from hidden stack slots or the vararg table and
+// AI: padding the rest with nil.
 void luaT_getvarargs (lua_State *L, CallInfo *ci, StkId where, int wanted,
                                     int vatab) {
   Table *h = (vatab < 0) ? NULL : hvalue(s2v(ci->func.p + vatab + 1));

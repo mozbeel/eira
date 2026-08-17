@@ -35,6 +35,8 @@ typedef struct {
 } DumpState;
 
 
+// AI: dumpVector is the single choke point for all data, so endianness can be changed in just this one macro.
+
 /*
 ** All high-level dumps go through dumpVector; you can change it to
 ** change the endianness of the result
@@ -43,6 +45,8 @@ typedef struct {
 
 #define dumpLiteral(D, s)	dumpBlock(D,s,sizeof(s) - sizeof(char))
 
+
+// AI: Writes 'size' bytes through the writer, tracking 'offset'; after any error it stops writing. The final NULL/0 call signals end-of-dump.
 
 /*
 ** Dump the block of memory pointed by 'b' with given 'size'.
@@ -58,6 +62,8 @@ static void dumpBlock (DumpState *D, const void *b, size_t size) {
   }
 }
 
+
+// AI: Pads with zeros so the dump offset is a multiple of 'align' (used before aligned code/struct arrays).
 
 /*
 ** Dump enough zeros to ensure that current position is a multiple of
@@ -77,6 +83,7 @@ static void dumpAlign (DumpState *D, unsigned align) {
 #define dumpVar(D,x)		dumpVector(D,&x,1)
 
 
+// AI: Dumps a single byte (any value 0-255 passed as an int).
 static void dumpByte (DumpState *D, int y) {
   lu_byte x = (lu_byte)y;
   dumpVar(D, x);
@@ -88,6 +95,8 @@ static void dumpByte (DumpState *D, int y) {
 ** (The "+6" rounds up the division.)
 */
 #define DIBS    ((l_numbits(lua_Unsigned) + 6) / 7)
+
+// AI: MSB-varint: 7 payload bits per byte, high bit marks "more bytes", stored most-significant byte first.
 
 /*
 ** Dumps an unsigned integer using the MSB Varint encoding
@@ -102,21 +111,26 @@ static void dumpVarint (DumpState *D, lua_Unsigned x) {
 }
 
 
+// AI: Dumps a size_t as a varint.
 static void dumpSize (DumpState *D, size_t sz) {
   dumpVarint(D, cast(lua_Unsigned, sz));
 }
 
 
+// AI: Dumps a non-negative int as a varint.
 static void dumpInt (DumpState *D, int x) {
   lua_assert(x >= 0);
   dumpVarint(D, cast_uint(x));
 }
 
 
+// AI: Dumps a float in raw native memory format (the header records its size for the loader).
 static void dumpNumber (DumpState *D, lua_Number x) {
   dumpVar(D, x);
 }
 
+
+// AI: Zig-zag style coding: n>=0 -> 2n, n<0 -> -2n-1, so small integers (including -1) stay small after varint encoding.
 
 /*
 ** Signed integers are coded to keep small values small. (Coding -1 as
@@ -130,6 +144,8 @@ static void dumpInteger (DumpState *D, lua_Integer x) {
   dumpVarint(D, cx);
 }
 
+
+// AI: Dumps a string, deduplicating: size 0 + index reuses a previously dumped string (index 0 = NULL); else it dumps size+1 bytes and records it.
 
 /*
 ** Dump a String. First dump its "size":
@@ -168,6 +184,7 @@ static void dumpString (DumpState *D, TString *ts) {
 }
 
 
+// AI: Dumps the instruction array, aligned so the raw instructions can be read back natively.
 static void dumpCode (DumpState *D, const Proto *f) {
   dumpInt(D, f->sizecode);
   dumpAlign(D, sizeof(f->code[0]));
@@ -178,6 +195,7 @@ static void dumpCode (DumpState *D, const Proto *f) {
 
 static void dumpFunction (DumpState *D, const Proto *f);
 
+// AI: Dumps all constants: count, then per constant a type byte and its value (nil/false/true carry no payload).
 static void dumpConstants (DumpState *D, const Proto *f) {
   int i;
   int n = f->sizek;
@@ -204,6 +222,7 @@ static void dumpConstants (DumpState *D, const Proto *f) {
 }
 
 
+// AI: Dumps the count of nested prototypes and each of them recursively.
 static void dumpProtos (DumpState *D, const Proto *f) {
   int i;
   int n = f->sizep;
@@ -213,6 +232,7 @@ static void dumpProtos (DumpState *D, const Proto *f) {
 }
 
 
+// AI: Dumps each upvalue descriptor (instack flag, index, kind) as three bytes; their names go in the debug section.
 static void dumpUpvalues (DumpState *D, const Proto *f) {
   int i, n = f->sizeupvalues;
   dumpInt(D, n);
@@ -224,6 +244,7 @@ static void dumpUpvalues (DumpState *D, const Proto *f) {
 }
 
 
+// AI: Dumps debug info (line info, locals, upvalue names); with 'strip' all of it is replaced by zero counts.
 static void dumpDebug (DumpState *D, const Proto *f) {
   int i, n;
   n = (D->strip) ? 0 : f->sizelineinfo;
@@ -251,6 +272,7 @@ static void dumpDebug (DumpState *D, const Proto *f) {
 }
 
 
+// AI: Serializes one Proto: header fields, code, constants, upvalues, nested protos, source name, and debug info.
 static void dumpFunction (DumpState *D, const Proto *f) {
   dumpInt(D, f->linedefined);
   dumpInt(D, f->lastlinedefined);
@@ -266,10 +288,12 @@ static void dumpFunction (DumpState *D, const Proto *f) {
 }
 
 
+// AI: Dumps a native type's size followed by a sample value, letting the loader verify its own ABI matches.
 #define dumpNumInfo(D, tvar, value)  \
   { tvar i = value; dumpByte(D, sizeof(tvar)); dumpVar(D, i); }
 
 
+// AI: Writes the chunk header: signature, version, format, LUAC_DATA marker, and native size/sample of each numeric type.
 static void dumpHeader (DumpState *D) {
   dumpLiteral(D, LUA_SIGNATURE);
   dumpByte(D, LUAC_VERSION);
@@ -282,12 +306,15 @@ static void dumpHeader (DumpState *D) {
 }
 
 
+// AI: Public entry: serializes Proto 'f' through writer 'w'; returns the writer status (nonzero = write error).
+
 /*
 ** dump Lua function as precompiled chunk
 */
 int luaU_dump (lua_State *L, const Proto *f, lua_Writer w, void *data,
                int strip) {
   DumpState D;
+  // AI: 'h' maps dumped strings to indices for dedup references; it is anchored on the stack to keep it alive.
   D.h = luaH_new(L);  /* aux. table to keep strings already dumped */
   sethvalue2s(L, L->top.p, D.h);  /* anchor it */
   L->top.p++;

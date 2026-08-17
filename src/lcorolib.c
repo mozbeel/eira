@@ -19,6 +19,8 @@
 #include "llimits.h"
 
 
+// AI: Helper: fetches the coroutine (thread) given as first argument,
+// AI: raising a type error when it is not a thread.
 static lua_State *getco (lua_State *L) {
   lua_State *co = lua_tothread(L, 1);
   luaL_argexpected(L, co, 1, "thread");
@@ -30,6 +32,9 @@ static lua_State *getco (lua_State *L) {
 ** Resumes a coroutine. Returns the number of results for non-error
 ** cases or -1 for errors.
 */
+// AI: Core resume machinery: moves 'narg' values from L to the
+// AI: coroutine, resumes it, then moves the results back. Returns the
+// AI: result count, or -1 with the error message on L's stack.
 static int auxresume (lua_State *L, lua_State *co, int narg) {
   int status, nres;
   if (l_unlikely(!lua_checkstack(co, narg))) {
@@ -54,6 +59,8 @@ static int auxresume (lua_State *L, lua_State *co, int narg) {
 }
 
 
+// AI: Implements coroutine.resume(): prepends a boolean to the outcome
+// AI: of auxresume (true + results, or false + error message).
 static int luaB_coresume (lua_State *L) {
   lua_State *co = getco(L);
   int r;
@@ -71,6 +78,9 @@ static int luaB_coresume (lua_State *L) {
 }
 
 
+// AI: Closure returned by coroutine.wrap: resumes the coroutine stored
+// AI: in its upvalue and turns failures into errors, closing the
+// AI: to-be-closed variables of a dead coroutine first.
 static int luaB_auxwrap (lua_State *L) {
   lua_State *co = lua_tothread(L, lua_upvalueindex(1));
   int r = auxresume(L, co, lua_gettop(L));
@@ -93,6 +103,8 @@ static int luaB_auxwrap (lua_State *L) {
 }
 
 
+// AI: Implements coroutine.create(): creates a new thread whose body is
+// AI: the given function.
 static int luaB_cocreate (lua_State *L) {
   lua_State *NL;
   luaL_checktype(L, 1, LUA_TFUNCTION);
@@ -103,6 +115,8 @@ static int luaB_cocreate (lua_State *L) {
 }
 
 
+// AI: Implements coroutine.wrap(): creates a coroutine and returns a
+// AI: closure that resumes it, propagating errors as exceptions.
 static int luaB_cowrap (lua_State *L) {
   luaB_cocreate(L);
   lua_pushcclosure(L, luaB_auxwrap, 1);
@@ -110,6 +124,8 @@ static int luaB_cowrap (lua_State *L) {
 }
 
 
+// AI: Implements coroutine.yield(): suspends the running coroutine,
+// AI: passing all arguments as results of the matching resume.
 static int luaB_yield (lua_State *L) {
   return lua_yield(L, lua_gettop(L));
 }
@@ -125,6 +141,9 @@ static const char *const statname[] =
   {"running", "dead", "suspended", "normal"};
 
 
+// AI: Computes a coroutine's state: "running" if it is the caller
+// AI: itself, otherwise normal/suspended/dead based on lua_status and
+// AI: whether it still has stack frames.
 static int auxstatus (lua_State *L, lua_State *co) {
   if (L == co) return COS_RUN;
   else {
@@ -147,6 +166,8 @@ static int auxstatus (lua_State *L, lua_State *co) {
 }
 
 
+// AI: Implements coroutine.status(): reports "running", "normal",
+// AI: "suspended", or "dead".
 static int luaB_costatus (lua_State *L) {
   lua_State *co = getco(L);
   lua_pushstring(L, statname[auxstatus(L, co)]);
@@ -154,11 +175,15 @@ static int luaB_costatus (lua_State *L) {
 }
 
 
+// AI: Helper: returns the thread given as argument, or the current
+// AI: thread when none is given.
 static lua_State *getoptco (lua_State *L) {
   return (lua_isnone(L, 1) ? L : getco(L));
 }
 
 
+// AI: Implements coroutine.isyieldable(): true when yielding from the
+// AI: given coroutine would be allowed.
 static int luaB_yieldable (lua_State *L) {
   lua_State *co = getoptco(L);
   lua_pushboolean(L, lua_isyieldable(co));
@@ -166,6 +191,8 @@ static int luaB_yieldable (lua_State *L) {
 }
 
 
+// AI: Implements coroutine.running(): returns the running thread and a
+// AI: flag telling whether it is the main thread.
 static int luaB_corunning (lua_State *L) {
   int ismain = lua_pushthread(L);
   lua_pushboolean(L, ismain);
@@ -173,6 +200,9 @@ static int luaB_corunning (lua_State *L) {
 }
 
 
+// AI: Implements coroutine.close(): runs the to-be-closed variables of
+// AI: a suspended or dead coroutine; closing the running thread (and
+// AI: the main thread) is rejected.
 static int luaB_close (lua_State *L) {
   lua_State *co = getoptco(L);
   int status = auxstatus(L, co);
@@ -204,6 +234,7 @@ static int luaB_close (lua_State *L) {
 }
 
 
+// AI: Registry of the coroutine library functions.
 static const luaL_Reg co_funcs[] = {
   {"create", luaB_cocreate},
   {"resume", luaB_coresume},
@@ -218,6 +249,7 @@ static const luaL_Reg co_funcs[] = {
 
 
 
+// AI: Opens the coroutine library table.
 LUAMOD_API int luaopen_coroutine (lua_State *L) {
   luaL_newlib(L, co_funcs);
   return 1;

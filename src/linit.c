@@ -21,6 +21,9 @@
 #include "llimits.h"
 
 
+// AI: Standard library registry: name + open function; order must match the LUA_<name>K bit constants.
+// AI: luaL_openselectedlibs uses each entry's position as a bit mask to select which libraries to open.
+
 /*
 ** Standard Libraries. (Must be listed in the same ORDER of their
 ** respective constants LUA_<libname>K.)
@@ -39,6 +42,8 @@ static const luaL_Reg stdlibs[] = {
   {NULL, NULL}
 };
 
+
+// AI: For each library whose bit is in 'load', requires it; bits in 'preload' are instead registered in package.preload.
 
 /*
 ** require and preload selected standard libraries

@@ -94,6 +94,8 @@ static void *firsttry (global_State *g, void *block, size_t os, size_t ns) {
 #define MINSIZEARRAY	4
 
 
+// AI: Grow a parser array by doubling (at least MINSIZEARRAY) so 'nelems + 1'
+// AI: fits; clamps at 'limit' and raises "too many <what>" once it is reached.
 void *luaM_growaux_ (lua_State *L, void *block, int nelems, int *psize,
                      unsigned size_elems, int limit, const char *what) {
   void *newblock;
@@ -125,6 +127,8 @@ void *luaM_growaux_ (lua_State *L, void *block, int nelems, int *psize,
 ** to its number of elements, the only option is to raise an
 ** error.
 */
+// AI: Shrink an array to exactly 'final_n' elements (prototype arrays are
+// AI: sized by element count, so failure must raise).
 void *luaM_shrinkvector_ (lua_State *L, void *block, int *size,
                           int final_n, unsigned size_elem) {
   void *newblock;
@@ -139,6 +143,7 @@ void *luaM_shrinkvector_ (lua_State *L, void *block, int *size,
 /* }================================================================== */
 
 
+// AI: Raise a memory error when a block request would overflow 'size_t'.
 l_noret luaM_toobig (lua_State *L) {
   luaG_runerror(L, "memory allocation error: block too big");
 }
@@ -147,6 +152,8 @@ l_noret luaM_toobig (lua_State *L) {
 /*
 ** Free memory
 */
+// AI: Free 'block' and return its 'osize' bytes to the GC debt (positive debt
+// AI: tells the collector to run a step soon).
 void luaM_free_ (lua_State *L, void *block, size_t osize) {
   global_State *g = G(L);
   lua_assert((osize == 0) == (block == NULL));
@@ -159,6 +166,8 @@ void luaM_free_ (lua_State *L, void *block, size_t osize) {
 ** In case of allocation fail, this function will do an emergency
 ** collection to free some memory and then try the allocation again.
 */
+// AI: Retry a failed allocation after an emergency full GC; only possible when
+// AI: the state is fully built and the collector is not mid-step.
 static void *tryagain (lua_State *L, void *block,
                        size_t osize, size_t nsize) {
   global_State *g = G(L);
@@ -173,6 +182,8 @@ static void *tryagain (lua_State *L, void *block,
 /*
 ** Generic allocation routine.
 */
+// AI: Generic realloc: free/shrink/grow through the state allocator, retrying
+// AI: once after a GC when growing, and charging 'GCdebt' with the net delta.
 void *luaM_realloc_ (lua_State *L, void *block, size_t osize, size_t nsize) {
   void *newblock;
   global_State *g = G(L);
@@ -189,6 +200,7 @@ void *luaM_realloc_ (lua_State *L, void *block, size_t osize, size_t nsize) {
 }
 
 
+// AI: Like 'luaM_realloc_', but raises a memory error when growing fails.
 void *luaM_saferealloc_ (lua_State *L, void *block, size_t osize,
                                                     size_t nsize) {
   void *newblock = luaM_realloc_(L, block, osize, nsize);
@@ -198,6 +210,8 @@ void *luaM_saferealloc_ (lua_State *L, void *block, size_t osize,
 }
 
 
+// AI: Allocate a fresh block ('size == 0' is a legal no-op returning NULL);
+// AI: 'tag' identifies the collectable-object type for the allocator.
 void *luaM_malloc_ (lua_State *L, size_t size, int tag) {
   if (size == 0)
     return NULL;  /* that's all */

@@ -42,11 +42,14 @@ typedef struct {
 } LoadState;
 
 
+// AI: Raises a syntax error ("bad binary format (<why>)") via luaD_throw; never returns.
 static l_noret error (LoadState *S, const char *why) {
   luaO_pushfstring(S->L, "%s: bad binary format (%s)", S->name, why);
   luaD_throw(S->L, LUA_ERRSYNTAX);
 }
 
+
+// AI: All numeric loads funnel through loadVector, so the loader can be made endianness-aware in one place.
 
 /*
 ** All high-level loads go through loadVector; you can change it to
@@ -54,6 +57,7 @@ static l_noret error (LoadState *S, const char *why) {
 */
 #define loadVector(S,b,n)	loadBlock(S,b,cast_sizet(n)*sizeof((b)[0]))
 
+// AI: Reads 'size' bytes from the ZIO stream, raising "truncated chunk" on EOF; tracks 'offset'.
 static void loadBlock (LoadState *S, void *b, size_t size) {
   if (luaZ_read(S->Z, b, size) != 0)
     error(S, "truncated chunk");
@@ -61,6 +65,7 @@ static void loadBlock (LoadState *S, void *b, size_t size) {
 }
 
 
+// AI: Skips bytes so the load offset is a multiple of 'align' (mirror of dumpAlign for aligned arrays).
 static void loadAlign (LoadState *S, unsigned align) {
   unsigned padding = align - cast_uint(S->offset % align);
   if (padding < align) {  /* (padding == align) means no padding */
@@ -73,6 +78,7 @@ static void loadAlign (LoadState *S, unsigned align) {
 
 #define getaddr(S,n,t)	cast(t *, getaddr_(S,cast_sizet(n) * sizeof(t)))
 
+// AI: Returns a pointer into the fixed input buffer for 'size' bytes, or errors if the block is not contiguous.
 static const void *getaddr_ (LoadState *S, size_t size) {
   const void *block = luaZ_getaddr(S->Z, size);
   S->offset += size;
@@ -85,6 +91,7 @@ static const void *getaddr_ (LoadState *S, size_t size) {
 #define loadVar(S,x)		loadVector(S,&x,1)
 
 
+// AI: Reads one byte, raising "truncated chunk" at end of input.
 static lu_byte loadByte (LoadState *S) {
   int b = zgetc(S->Z);
   if (b == EOZ)
@@ -94,6 +101,7 @@ static lu_byte loadByte (LoadState *S) {
 }
 
 
+// AI: MSB-varint reader (mirror of dumpVarint); 'limit' bounds the result and any overflow raises "integer overflow".
 static lua_Unsigned loadVarint (LoadState *S, lua_Unsigned limit) {
   lua_Unsigned x = 0;
   int b;
@@ -108,17 +116,20 @@ static lua_Unsigned loadVarint (LoadState *S, lua_Unsigned limit) {
 }
 
 
+// AI: Reads a size_t varint, capped by MAX_SIZE.
 static size_t loadSize (LoadState *S) {
   return cast_sizet(loadVarint(S, MAX_SIZE));
 }
 
 
+// AI: Reads an int varint, capped by INT_MAX.
 static int loadInt (LoadState *S) {
   return cast_int(loadVarint(S, cast_sizet(INT_MAX)));
 }
 
 
 
+// AI: Reads a float from raw native memory format.
 static lua_Number loadNumber (LoadState *S) {
   lua_Number x;
   loadVar(S, x);
@@ -126,6 +137,7 @@ static lua_Number loadNumber (LoadState *S) {
 }
 
 
+// AI: Reads the zig-zag encoded integer: even codes are n/2, odd codes are ~(n/2) (negative).
 static lua_Integer loadInteger (LoadState *S) {
   lua_Unsigned cx = loadVarint(S, LUA_MAXUNSIGNED);
   /* decode unsigned to signed */
@@ -135,6 +147,8 @@ static lua_Integer loadInteger (LoadState *S) {
     return l_castU2S(cx >> 1);
 }
 
+
+// AI: Reads a string, resolving reuse references (size 0 + index) and recording new strings by index for later reuse.
 
 /*
 ** Load a nullable string into slot 'sl' from prototype 'p'. The
@@ -184,6 +198,7 @@ static void loadString (LoadState *S, Proto *p, TString **sl) {
 }
 
 
+// AI: Reads the instruction array, aligned; with a fixed buffer it points into it, otherwise it copies the bytes.
 static void loadCode (LoadState *S, Proto *f) {
   int n = loadInt(S);
   loadAlign(S, sizeof(f->code[0]));
@@ -202,6 +217,7 @@ static void loadCode (LoadState *S, Proto *f) {
 static void loadFunction(LoadState *S, Proto *f);
 
 
+// AI: Reads the constants array: a type byte per constant plus its value; string constants anchor in 'source' while loading.
 static void loadConstants (LoadState *S, Proto *f) {
   int i;
   int n = loadInt(S);
@@ -244,6 +260,7 @@ static void loadConstants (LoadState *S, Proto *f) {
 }
 
 
+// AI: Reads the nested prototypes, creating each as an empty Proto (GC-valid) before filling it.
 static void loadProtos (LoadState *S, Proto *f) {
   int i;
   int n = loadInt(S);
@@ -258,6 +275,8 @@ static void loadProtos (LoadState *S, Proto *f) {
   }
 }
 
+
+// AI: Reads upvalue descriptors; the name array is prefilled with NULL so it stays GC-consistent before errors can occur.
 
 /*
 ** Load the upvalues for a function. The names must be filled first,
@@ -280,6 +299,7 @@ static void loadUpvalues (LoadState *S, Proto *f) {
 }
 
 
+// AI: Reads debug data (line info, locals, upvalue names); a zero upvalue-name count means names were stripped.
 static void loadDebug (LoadState *S, Proto *f) {
   int i;
   int n = loadInt(S);
@@ -323,6 +343,7 @@ static void loadDebug (LoadState *S, Proto *f) {
 }
 
 
+// AI: Fills one Proto: header fields, code, constants, upvalues, nested protos, source name, and debug info.
 static void loadFunction (LoadState *S, Proto *f) {
   f->linedefined = loadInt(S);
   f->lastlinedefined = loadInt(S);
@@ -341,6 +362,7 @@ static void loadFunction (LoadState *S, Proto *f) {
 }
 
 
+// AI: Reads 'len' bytes and compares them against 's'; a mismatch raises error 'msg'.
 static void checkliteral (LoadState *S, const char *s, const char *msg) {
   char buff[sizeof(LUA_SIGNATURE) + sizeof(LUAC_DATA)]; /* larger than both */
   size_t len = strlen(s);
@@ -350,30 +372,35 @@ static void checkliteral (LoadState *S, const char *s, const char *msg) {
 }
 
 
+// AI: Raises a "<type> <what> mismatch" error, used when header numeric sizes or formats disagree.
 static l_noret numerror (LoadState *S, const char *what, const char *tname) {
   const char *msg = luaO_pushfstring(S->L, "%s %s mismatch", tname, what);
   error(S, msg);
 }
 
 
+// AI: Verifies the dumped byte-size of a numeric type matches this platform's.
 static void checknumsize (LoadState *S, int size, const char *tname) {
   if (size != loadByte(S))
     numerror(S, "size", tname);
 }
 
 
+// AI: Verifies the dumped sample value (an endianness/format probe) matches this platform's.
 static void checknumformat (LoadState *S, int eq, const char *tname) {
   if (!eq)
     numerror(S, "format", tname);
 }
 
 
+// AI: Macro combining checknumsize + loadVar + checknumformat for one native numeric type.
 #define checknum(S,tvar,value,tname)  \
   { tvar i; checknumsize(S, sizeof(i), tname); \
     loadVar(S, i); \
     checknumformat(S, i == value, tname); }
 
 
+// AI: Validates the chunk header: signature, version, format, marker bytes, and native type size/format compatibility.
 static void checkHeader (LoadState *S) {
   /* skip 1st char (already read and checked) */
   checkliteral(S, &LUA_SIGNATURE[1], "not a binary chunk");
@@ -388,6 +415,8 @@ static void checkHeader (LoadState *S) {
   checknum(S, lua_Number, LUAC_NUM, "Lua number");
 }
 
+
+// AI: Public entry: validates the header, builds the main closure + prototype, and returns it (or throws).
 
 /*
 ** Load precompiled chunk.
@@ -404,6 +433,7 @@ LClosure *luaU_undump (lua_State *L, ZIO *Z, Table *anchor, const char *name,
   S.L = L;
   S.Z = Z;
   S.fixed = cast_byte(fixed);
+  // AI: The first byte (the LUA_SIGNATURE escape) was already consumed by the caller before this point.
   S.offset = 1;  /* fist byte was already read */
   checkHeader(&S);
   S.h = anchor;

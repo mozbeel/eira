@@ -36,6 +36,8 @@
 #endif
 
 /* Check whether 'mode' matches '[rwa]%+?[L_MODEEXT]*' */
+// AI: Validates an fopen mode string: one of r/w/a, an optional '+',
+// AI: and optional binary extensions.
 static int l_checkmode (const char *mode) {
   return (*mode != '\0' && strchr("rwa", *(mode++)) != NULL &&
          (*mode != '+' || ((void)(++mode), 1)) &&  /* skip if char is '+' */
@@ -159,6 +161,8 @@ typedef luaL_Stream LStream;
 #define isclosed(p)	((p)->closef == NULL)
 
 
+// AI: Implements io.type(): returns "file", "closed file", or nil for
+// AI: non-file values.
 static int io_type (lua_State *L) {
   LStream *p;
   luaL_checkany(L, 1);
@@ -173,6 +177,8 @@ static int io_type (lua_State *L) {
 }
 
 
+// AI: __tostring for file handles: "file (address)" when open,
+// AI: "file (closed)" otherwise.
 static int f_tostring (lua_State *L) {
   LStream *p = tolstream(L);
   if (isclosed(p))
@@ -183,6 +189,8 @@ static int f_tostring (lua_State *L) {
 }
 
 
+// AI: Helper: returns the underlying FILE* of a handle, raising an
+// AI: error on a closed file.
 static FILE *tofile (lua_State *L) {
   LStream *p = tolstream(L);
   if (l_unlikely(isclosed(p)))
@@ -197,6 +205,8 @@ static FILE *tofile (lua_State *L) {
 ** before opening the actual file; so, if there is a memory error, the
 ** handle is in a consistent state.
 */
+// AI: Creates a file handle userdata pre-marked as closed, so failed
+// AI: opens leave the handle in a consistent state.
 static LStream *newprefile (lua_State *L) {
   LStream *p = (LStream *)lua_newuserdatauv(L, sizeof(LStream), 0);
   p->closef = NULL;  /* mark file handle as 'closed' */
@@ -210,6 +220,8 @@ static LStream *newprefile (lua_State *L) {
 ** a bug in some versions of the Clang compiler (e.g., clang 3.0 for
 ** 32 bits).
 */
+// AI: Closes a handle by calling its stored closef, clearing it first
+// AI: so a later __gc cannot double-close.
 static int aux_close (lua_State *L) {
   LStream *p = tolstream(L);
   volatile lua_CFunction cf = p->closef;
@@ -218,12 +230,16 @@ static int aux_close (lua_State *L) {
 }
 
 
+// AI: Implements file:close(): only valid on an open handle; returns
+// AI: the outcome of the actual close.
 static int f_close (lua_State *L) {
   tofile(L);  /* make sure argument is an open stream */
   return aux_close(L);
 }
 
 
+// AI: Implements io.close(): closes the given file, or the default
+// AI: output file when no argument is given.
 static int io_close (lua_State *L) {
   if (lua_isnone(L, 1))  /* no argument? */
     lua_getfield(L, LUA_REGISTRYINDEX, IO_OUTPUT);  /* use default output */
@@ -231,6 +247,8 @@ static int io_close (lua_State *L) {
 }
 
 
+// AI: __gc/__close metamethod: silently closes the file when still
+// AI: open; incomplete or already-closed handles are ignored.
 static int f_gc (lua_State *L) {
   LStream *p = tolstream(L);
   if (!isclosed(p) && p->f != NULL)
@@ -242,6 +260,8 @@ static int f_gc (lua_State *L) {
 /*
 ** function to close regular files
 */
+// AI: closef for regular files: wraps fclose and reports success or
+// AI: failure with errno.
 static int io_fclose (lua_State *L) {
   LStream *p = tolstream(L);
   errno = 0;
@@ -249,6 +269,8 @@ static int io_fclose (lua_State *L) {
 }
 
 
+// AI: Helper: creates a handle wired to io_fclose before any fopen is
+// AI: attempted.
 static LStream *newfile (lua_State *L) {
   LStream *p = newprefile(L);
   p->f = NULL;
@@ -257,6 +279,8 @@ static LStream *newfile (lua_State *L) {
 }
 
 
+// AI: Helper: creates a handle and opens the file, raising a Lua error
+// AI: when fopen fails.
 static void opencheck (lua_State *L, const char *fname, const char *mode) {
   LStream *p = newfile(L);
   p->f = fopen(fname, mode);
@@ -265,6 +289,8 @@ static void opencheck (lua_State *L, const char *fname, const char *mode) {
 }
 
 
+// AI: Implements io.open(): opens a file with the validated mode; on
+// AI: failure returns (nil, message, errno).
 static int io_open (lua_State *L) {
   const char *filename = luaL_checkstring(L, 1);
   const char *mode = luaL_optstring(L, 2, "r");
@@ -280,6 +306,8 @@ static int io_open (lua_State *L) {
 /*
 ** function to close 'popen' files
 */
+// AI: closef for popen files: waits for the child process and reports
+// AI: its exit status.
 static int io_pclose (lua_State *L) {
   LStream *p = tolstream(L);
   errno = 0;
@@ -287,6 +315,8 @@ static int io_pclose (lua_State *L) {
 }
 
 
+// AI: Implements io.popen(): spawns a subprocess connected to a file
+// AI: handle (uses _popen on Windows).
 static int io_popen (lua_State *L) {
   const char *filename = luaL_checkstring(L, 1);
   const char *mode = luaL_optstring(L, 2, "r");
@@ -299,6 +329,8 @@ static int io_popen (lua_State *L) {
 }
 
 
+// AI: Implements io.tmpfile(): opens an anonymous temporary file that
+// AI: is deleted when closed.
 static int io_tmpfile (lua_State *L) {
   LStream *p = newfile(L);
   errno = 0;
@@ -307,6 +339,8 @@ static int io_tmpfile (lua_State *L) {
 }
 
 
+// AI: Helper: fetches the default input/output stream from the
+// AI: registry, erroring if it was closed.
 static FILE *getiofile (lua_State *L, const char *findex) {
   LStream *p;
   lua_getfield(L, LUA_REGISTRYINDEX, findex);
@@ -317,6 +351,8 @@ static FILE *getiofile (lua_State *L, const char *findex) {
 }
 
 
+// AI: Shared core of io.input/io.output: sets a new default file (from
+// AI: a name or a handle) or returns the current one.
 static int g_iofile (lua_State *L, const char *f, const char *mode) {
   if (!lua_isnoneornil(L, 1)) {
     const char *filename = lua_tostring(L, 1);
@@ -334,11 +370,15 @@ static int g_iofile (lua_State *L, const char *f, const char *mode) {
 }
 
 
+// AI: Implements io.input(): gets or sets the default input file,
+// AI: opening a filename in read mode.
 static int io_input (lua_State *L) {
   return g_iofile(L, IO_INPUT, "r");
 }
 
 
+// AI: Implements io.output(): gets or sets the default output file,
+// AI: opening a filename in write mode.
 static int io_output (lua_State *L) {
   return g_iofile(L, IO_OUTPUT, "w");
 }
@@ -362,6 +402,8 @@ static int io_readline (lua_State *L);
 ** 3) a boolean, true iff file has to be closed when finished ('toclose')
 ** *) a variable number of format arguments (rest of the stack)
 */
+// AI: Builds the closure used by lines(): upvalues are the file, the
+// AI: argument count, a close flag, and the read formats.
 static void aux_lines (lua_State *L, int toclose) {
   int n = lua_gettop(L) - 1;  /* number of arguments to read */
   luaL_argcheck(L, n <= MAXARGLINE, MAXARGLINE + 2, "too many arguments");
@@ -373,6 +415,8 @@ static void aux_lines (lua_State *L, int toclose) {
 }
 
 
+// AI: Implements file:lines(): returns an iterator that reads lines (or
+// AI: formatted values) from the handle without closing it.
 static int f_lines (lua_State *L) {
   tofile(L);  /* check that it's a valid file handle */
   aux_lines(L, 0);
@@ -385,6 +429,9 @@ static int f_lines (lua_State *L) {
 ** closed, also returns the file itself as a second result (to be
 ** closed as the state at the exit of a generic for).
 */
+// AI: Implements io.lines(): iterates over the default input or a
+// AI: freshly opened file; in the latter case returns the file as a
+// AI: to-be-closed value for the generic for.
 static int io_lines (lua_State *L) {
   int toclose;
   if (lua_isnone(L, 1)) lua_pushnil(L);  /* at least one argument */
@@ -437,6 +484,8 @@ typedef struct {
 /*
 ** Add current char to buffer (if not out of space) and read next one
 */
+// AI: Number scanner step: saves the look-ahead char and reads the next
+// AI: one; on buffer overflow it invalidates the buffer and fails.
 static int nextc (RN *rn) {
   if (l_unlikely(rn->n >= L_MAXLENNUM)) {  /* buffer overflow? */
     rn->buff[0] = '\0';  /* invalidate result */
@@ -453,6 +502,8 @@ static int nextc (RN *rn) {
 /*
 ** Accept current char if it is in 'set' (of size 2)
 */
+// AI: Number scanner helper: consumes the current char when it matches
+// AI: one of the two chars in 'set'.
 static int test2 (RN *rn, const char *set) {
   if (rn->c == set[0] || rn->c == set[1])
     return nextc(rn);
@@ -463,6 +514,8 @@ static int test2 (RN *rn, const char *set) {
 /*
 ** Read a sequence of (hex)digits
 */
+// AI: Number scanner: consumes decimal or hex digits and returns how
+// AI: many were read.
 static int readdigits (RN *rn, int hex) {
   int count = 0;
   while ((hex ? isxdigit(rn->c) : isdigit(rn->c)) && nextc(rn))
@@ -476,6 +529,9 @@ static int readdigits (RN *rn, int hex) {
 ** Then it calls 'lua_stringtonumber' to check whether the format is
 ** correct and to convert it to a Lua number.
 */
+// AI: Implements the *n read format: scans a numeral with one-char
+// AI: look-ahead, locale decimal point and hex/exponent support, then
+// AI: validates it via lua_stringtonumber.
 static int read_number (lua_State *L, FILE *f) {
   RN rn;
   int count = 0;
@@ -510,6 +566,8 @@ static int read_number (lua_State *L, FILE *f) {
 }
 
 
+// AI: Tests end-of-file without consuming input: pushes "" and returns
+// AI: true when a character is available, false at EOF.
 static int test_eof (lua_State *L, FILE *f) {
   int c = getc(f);
   ungetc(c, f);  /* no-op when c == EOF */
@@ -518,6 +576,8 @@ static int test_eof (lua_State *L, FILE *f) {
 }
 
 
+// AI: Reads one line into a growing buffer; when 'chop' is false the
+// AI: trailing newline is kept. Fails only at EOF with nothing read.
 static int read_line (lua_State *L, FILE *f, int chop) {
   luaL_Buffer b;
   int c;
@@ -539,6 +599,7 @@ static int read_line (lua_State *L, FILE *f, int chop) {
 }
 
 
+// AI: Reads the whole file in LUAL_BUFFERSIZE chunks into one string.
 static void read_all (lua_State *L, FILE *f) {
   size_t nr;
   luaL_Buffer b;
@@ -552,6 +613,7 @@ static void read_all (lua_State *L, FILE *f) {
 }
 
 
+// AI: Reads up to 'n' characters; returns whether anything was read.
 static int read_chars (lua_State *L, FILE *f, size_t n) {
   size_t nr;  /* number of chars actually read */
   char *p;
@@ -565,6 +627,9 @@ static int read_chars (lua_State *L, FILE *f, size_t n) {
 }
 
 
+// AI: Core of io.read/file:read: dispatches each format argument
+// AI: (number, *n, *l, *L, *a) and returns the values read, or
+// AI: (nil, message, errno) on error.
 static int g_read (lua_State *L, FILE *f, int first) {
   int nargs = lua_gettop(L) - 1;
   int n, success;
@@ -616,11 +681,13 @@ static int g_read (lua_State *L, FILE *f, int first) {
 }
 
 
+// AI: Implements io.read(): reads from the default input file.
 static int io_read (lua_State *L) {
   return g_read(L, getiofile(L, IO_INPUT), 1);
 }
 
 
+// AI: Implements file:read(): reads from the given handle.
 static int f_read (lua_State *L) {
   return g_read(L, tofile(L), 2);
 }
@@ -629,6 +696,8 @@ static int f_read (lua_State *L) {
 /*
 ** Iteration function for 'lines'.
 */
+// AI: The lines() iterator: reads the next chunk(s); on EOF it closes
+// AI: the file when io.lines created it and ends the loop.
 static int io_readline (lua_State *L) {
   LStream *p = (LStream *)lua_touserdata(L, lua_upvalueindex(1));
   int i;
@@ -660,6 +729,9 @@ static int io_readline (lua_State *L) {
 /* }====================================================== */
 
 
+// AI: Core of io.write/file:write: converts numbers to strings and
+// AI: writes each argument; on a partial write returns
+// AI: (nil, message, code, bytes-written).
 static int g_write (lua_State *L, FILE *f, int arg) {
   int nargs = lua_gettop(L) - arg;
   size_t totalbytes = 0;  /* total number of bytes written */
@@ -687,11 +759,13 @@ static int g_write (lua_State *L, FILE *f, int arg) {
 }
 
 
+// AI: Implements io.write(): writes to the default output file.
 static int io_write (lua_State *L) {
   return g_write(L, getiofile(L, IO_OUTPUT), 1);
 }
 
 
+// AI: Implements file:write(): writes and returns the handle itself.
 static int f_write (lua_State *L) {
   FILE *f = tofile(L);
   lua_pushvalue(L, 1);  /* push file at the stack top (to be returned) */
@@ -699,6 +773,8 @@ static int f_write (lua_State *L) {
 }
 
 
+// AI: Implements file:seek(): moves the position (set/cur/end plus an
+// AI: offset) and returns the new position.
 static int f_seek (lua_State *L) {
   static const int mode[] = {SEEK_SET, SEEK_CUR, SEEK_END};
   static const char *const modenames[] = {"set", "cur", "end", NULL};
@@ -719,6 +795,8 @@ static int f_seek (lua_State *L) {
 }
 
 
+// AI: Implements file:setvbuf(): configures buffering mode ("no",
+// AI: "full", "line") and size.
 static int f_setvbuf (lua_State *L) {
   static const int mode[] = {_IONBF, _IOFBF, _IOLBF};
   static const char *const modenames[] = {"no", "full", "line", NULL};
@@ -732,17 +810,20 @@ static int f_setvbuf (lua_State *L) {
 }
 
 
+// AI: Helper: flushes the given stream and reports the outcome.
 static int aux_flush (lua_State *L, FILE *f) {
   errno = 0;
   return luaL_fileresult(L, fflush(f) == 0, NULL);
 }
 
 
+// AI: Implements file:flush(): flushes the handle's stream.
 static int f_flush (lua_State *L) {
   return aux_flush(L, tofile(L));
 }
 
 
+// AI: Implements io.flush(): flushes the default output file.
 static int io_flush (lua_State *L) {
   return aux_flush(L, getiofile(L, IO_OUTPUT));
 }
@@ -794,6 +875,8 @@ static const luaL_Reg metameth[] = {
 };
 
 
+// AI: Builds the LUA_FILEHANDLE metatable (__gc/__close/__tostring)
+// AI: and wires __index to the file methods table.
 static void createmeta (lua_State *L) {
   luaL_newmetatable(L, LUA_FILEHANDLE);  /* metatable for file handles */
   luaL_setfuncs(L, metameth, 0);  /* add metamethods to new metatable */
@@ -807,6 +890,8 @@ static void createmeta (lua_State *L) {
 /*
 ** function to (not) close the standard files stdin, stdout, and stderr
 */
+// AI: closef for the standard streams: refuses to close them and
+// AI: reports an error.
 static int io_noclose (lua_State *L) {
   LStream *p = tolstream(L);
   p->closef = &io_noclose;  /* keep file opened */
@@ -816,6 +901,8 @@ static int io_noclose (lua_State *L) {
 }
 
 
+// AI: Helper: exposes a standard stream as a file handle, and when 'k'
+// AI: is given registers it as the default input/output.
 static void createstdfile (lua_State *L, FILE *f, const char *k,
                            const char *fname) {
   LStream *p = newprefile(L);
@@ -829,6 +916,8 @@ static void createstdfile (lua_State *L, FILE *f, const char *k,
 }
 
 
+// AI: Opens the io library, the file-handle metatable, and the default
+// AI: stdin/stdout/stderr files.
 LUAMOD_API int luaopen_io (lua_State *L) {
   luaL_newlib(L, iolib);  /* new module */
   createmeta(L);

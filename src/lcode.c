@@ -31,6 +31,10 @@
 #include "lvm.h"
 
 
+// AI: lcode.c is the code generator: it turns the expdesc expressions built by
+// AI: the parser into Instruction streams for a Proto. It owns the register
+// AI: allocator (freereg/maxstacksize), the constant table 'k', jump patch
+// AI: lists, and the final peephole optimization pass (luaK_finish).
 /* (note that expressions VJMP also have jumps.) */
 #define hasjumps(e)	((e)->t != (e)->f)
 
@@ -311,6 +315,8 @@ void luaK_patchlist (FuncState *fs, int list, int target) {
 }
 
 
+// AI: Marks the current pc as a jump target and patches all jumps in 'list' to
+// AI: point there (used to "land" the outcome of a condition at the current pc).
 void luaK_patchtohere (FuncState *fs, int list) {
   int hr = luaK_getlabel(fs);  /* mark "here" as a jump target */
   luaK_patchlist(fs, list, hr);
@@ -404,6 +410,8 @@ int luaK_codeABCk (FuncState *fs, OpCode o, int A, int B, int C, int k) {
 }
 
 
+// AI: Emits an 'ivABC' instruction (extended vB/vC fields, e.g. NEWTABLE and
+// AI: SETLIST), asserting the opcode's mode and operand ranges.
 int luaK_codevABCk (FuncState *fs, OpCode o, int A, int B, int C, int k) {
   lua_assert(getOpMode(o) == ivABC);
   lua_assert(A <= MAXARG_A && B <= MAXARG_vB &&
@@ -689,6 +697,8 @@ static int fitsBx (lua_Integer i) {
 }
 
 
+// AI: Emits an integer load: OP_LOADI when the value fits in an sBx operand,
+// AI: otherwise falls back to a constant-table load (OP_LOADK / OP_LOADKX).
 void luaK_int (FuncState *fs, int reg, lua_Integer i) {
   if (fitsBx(i))
     codeAsBx(fs, OP_LOADI, reg, cast_int(i));
@@ -697,6 +707,8 @@ void luaK_int (FuncState *fs, int reg, lua_Integer i) {
 }
 
 
+// AI: Emits a float load: OP_LOADF when the float is an exact small integer,
+// AI: otherwise a constant-table load via luaK_codek.
 static void luaK_float (FuncState *fs, int reg, lua_Number f) {
   lua_Integer fi;
   if (luaV_flttointeger(f, &fi, F2Ieq) && fitsBx(fi))
@@ -942,6 +954,8 @@ static void discharge2anyreg (FuncState *fs, expdesc *e) {
 }
 
 
+// AI: Emits a boolean-load instruction, first marking the current pc as a jump
+// AI: target, because these loads are the landing spots of patch lists.
 static int code_loadbool (FuncState *fs, int A, OpCode op) {
   luaK_getlabel(fs);  /* those instructions may be jump targets */
   return luaK_codeABC(fs, op, A, 0, 0);
@@ -1092,6 +1106,9 @@ static int exp2RK (FuncState *fs, expdesc *e) {
 }
 
 
+// AI: Emits an iABC instruction whose B operand is an R/K index: 'ec' is folded
+// AI: into a constant (setting the 'k' flag) when possible, else moved to a
+// AI: register; used for SET* and comparisons.
 static void codeABRK (FuncState *fs, OpCode o, int A, int B,
                       expdesc *ec) {
   int k = exp2RK(fs, ec);
@@ -1562,6 +1579,8 @@ static int finishbinexpneg (FuncState *fs, expdesc *e1, expdesc *e2,
 }
 
 
+// AI: Swaps the two expression descriptors; used to put a numeric constant on
+// AI: the right of commutative operations or to reverse comparison operands.
 static void swapexps (expdesc *e1, expdesc *e2) {
   expdesc temp = *e1; *e1 = *e2; *e2 = temp;  /* swap 'e1' and 'e2' */
 }
@@ -1872,6 +1891,9 @@ void luaK_fixline (FuncState *fs, int line) {
 }
 
 
+// AI: Patches the OP_NEWTABLE emitted at 'pc' with the final array/hash sizes
+// AI: (hash size stored as log2+1). Writes an OP_EXTRAARG for the high bits of
+// AI: the array size when they do not fit in the vC field (k flag set).
 void luaK_settablesize (FuncState *fs, int pc, int ra, int asize, int hsize) {
   Instruction *inst = &fs->f->code[pc];
   int extra = asize / (MAXARG_vC + 1);  /* higher bits of array size */
@@ -1934,6 +1956,8 @@ void luaK_finish (FuncState *fs) {
     p->flag &= cast_byte(~PF_VAHID);  /* then it will not use hidden args. */
   for (i = 0; i < fs->pc; i++) {
     Instruction *pc = &p->code[i];
+    // AI: An instruction may use 'top' only if the previous one produces
+    // AI: multiple results; this invariant keeps the VM's 'top' handling valid.
     lua_assert(i == 0 || luaP_isOT(*(pc - 1)) == luaP_isIT(*pc));
     switch (GET_OPCODE(*pc)) {
       case OP_RETURN0: case OP_RETURN1: {

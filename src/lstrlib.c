@@ -37,6 +37,7 @@
 #endif
 
 
+// AI: Implements string.len(s): returns the byte length of the string.
 static int str_len (lua_State *L) {
   size_t l;
   luaL_checklstring(L, 1, &l);
@@ -53,6 +54,8 @@ static int str_len (lua_State *L) {
 ** The inverted comparison avoids a possible overflow
 ** computing '-pos'.
 */
+// AI: Converts a relative start position (negative = back from the end) to
+// AI: a 1-based index, clipped to [1, len].
 static size_t posrelatI (lua_Integer pos, size_t len) {
   if (pos > 0)
     return (size_t)pos;
@@ -69,6 +72,8 @@ static size_t posrelatI (lua_Integer pos, size_t len) {
 ** with default value 'def'.
 ** Negative means back from end: clip result to [0, len]
 */
+// AI: Reads an optional end position with default 'def', mapping negatives
+// AI: back from the end and clipping the result to [0, len].
 static size_t getendpos (lua_State *L, int arg, lua_Integer def,
                          size_t len) {
   lua_Integer pos = luaL_optinteger(L, arg, def);
@@ -82,6 +87,8 @@ static size_t getendpos (lua_State *L, int arg, lua_Integer def,
 }
 
 
+// AI: Implements string.sub(s, i [, j]): returns the substring over the
+// AI: given (possibly negative) positions, or "" when the interval is empty.
 static int str_sub (lua_State *L) {
   size_t l;
   const char *s = luaL_checklstring(L, 1, &l);
@@ -94,6 +101,8 @@ static int str_sub (lua_State *L) {
 }
 
 
+// AI: Implements string.reverse(s): returns the string with its bytes in
+// AI: reverse order.
 static int str_reverse (lua_State *L) {
   size_t l, i;
   luaL_Buffer b;
@@ -106,6 +115,8 @@ static int str_reverse (lua_State *L) {
 }
 
 
+// AI: Implements string.lower(s): maps bytes to lowercase via tolower
+// AI: (locale-dependent in C).
 static int str_lower (lua_State *L) {
   size_t l;
   size_t i;
@@ -119,6 +130,8 @@ static int str_lower (lua_State *L) {
 }
 
 
+// AI: Implements string.upper(s): maps bytes to uppercase via toupper
+// AI: (locale-dependent in C).
 static int str_upper (lua_State *L) {
   size_t l;
   size_t i;
@@ -136,6 +149,8 @@ static int str_upper (lua_State *L) {
 ** MAX_SIZE is limited both by size_t and lua_Integer.
 ** When x <= MAX_SIZE, x can be safely cast to size_t or lua_Integer.
 */
+// AI: Implements string.rep(s, n [, sep]): repeats 's' n times joined by
+// AI: 'sep', rejecting results that would not fit in the size limits.
 static int str_rep (lua_State *L) {
   size_t len, lsep;
   const char *s = luaL_checklstring(L, 1, &len);
@@ -163,6 +178,8 @@ static int str_rep (lua_State *L) {
 }
 
 
+// AI: Implements string.byte(s [, i [, j]]): pushes the byte codes of the
+// AI: characters in [i, j], nothing for an empty interval.
 static int str_byte (lua_State *L) {
   size_t l;
   const char *s = luaL_checklstring(L, 1, &l);
@@ -181,6 +198,8 @@ static int str_byte (lua_State *L) {
 }
 
 
+// AI: Implements string.char(...): builds a string from the given byte
+// AI: values, each of which must fit in one byte (<= 255).
 static int str_char (lua_State *L) {
   int n = lua_gettop(L);  /* number of arguments */
   int i;
@@ -208,6 +227,8 @@ struct str_Writer {
 };
 
 
+// AI: lua_dump callback: accumulates the dumped binary chunks and, on the
+// AI: final call, pushes the complete result onto the stack.
 static int writer (lua_State *L, const void *b, size_t size, void *ud) {
   struct str_Writer *state = (struct str_Writer *)ud;
   if (!state->init) {
@@ -224,6 +245,8 @@ static int writer (lua_State *L, const void *b, size_t size, void *ud) {
 }
 
 
+// AI: Implements string.dump(f [, strip]): serializes a Lua function into
+// AI: binary (dropping debug info when 'strip' is true).
 static int str_dump (lua_State *L) {
   struct str_Writer state;
   int strip = lua_toboolean(L, 2);
@@ -256,6 +279,8 @@ static const luaL_Reg stringmetamethods[] = {
 
 #else		/* }{ */
 
+// AI: Helper: makes 'arg' a number on the stack, coercing numerical strings
+// AI: (returns 0 when it cannot).
 static int tonum (lua_State *L, int arg) {
   if (lua_type(L, arg) == LUA_TNUMBER) {  /* already a number? */
     lua_pushvalue(L, arg);
@@ -276,6 +301,8 @@ static int tonum (lua_State *L, int arg) {
 ** doesn't work, the only other option would be for the second
 ** operand to have a different metamethod.
 */
+// AI: Fallback for the string arithmetic metamethods: delegates the
+// AI: operation to the second operand's metamethod, raising otherwise.
 static void trymt (lua_State *L, const char *mtkey, const char *opname) {
   lua_settop(L, 2);  /* back to the original arguments */
   if (l_unlikely(lua_type(L, 2) == LUA_TSTRING ||
@@ -287,6 +314,9 @@ static void trymt (lua_State *L, const char *mtkey, const char *opname) {
 }
 
 
+// AI: Shared implementation of the arithmetic metamethods: computes the
+// AI: operation directly when both operands are numbers, else tries the
+// AI: metamethod fallback.
 static int arith (lua_State *L, int op, const char *mtname) {
   if (tonum(L, 1) && tonum(L, 2))
     lua_arith(L, op);  /* result will be on the top */
@@ -296,34 +326,42 @@ static int arith (lua_State *L, int op, const char *mtname) {
 }
 
 
+// AI: Metamethod for '+' on strings (numeric-string coercion + fallback).
 static int arith_add (lua_State *L) {
   return arith(L, LUA_OPADD, "__add");
 }
 
+// AI: Metamethod for '-' on strings.
 static int arith_sub (lua_State *L) {
   return arith(L, LUA_OPSUB, "__sub");
 }
 
+// AI: Metamethod for '*' on strings.
 static int arith_mul (lua_State *L) {
   return arith(L, LUA_OPMUL, "__mul");
 }
 
+// AI: Metamethod for '%' on strings.
 static int arith_mod (lua_State *L) {
   return arith(L, LUA_OPMOD, "__mod");
 }
 
+// AI: Metamethod for '^' on strings.
 static int arith_pow (lua_State *L) {
   return arith(L, LUA_OPPOW, "__pow");
 }
 
+// AI: Metamethod for '/' on strings.
 static int arith_div (lua_State *L) {
   return arith(L, LUA_OPDIV, "__div");
 }
 
+// AI: Metamethod for '//' on strings.
 static int arith_idiv (lua_State *L) {
   return arith(L, LUA_OPIDIV, "__idiv");
 }
 
+// AI: Metamethod for unary '-' on strings.
 static int arith_unm (lua_State *L) {
   return arith(L, LUA_OPUNM, "__unm");
 }
@@ -385,6 +423,8 @@ static const char *match (MatchState *ms, const char *s, const char *p);
 #define SPECIALS	"^$*+?.([%-"
 
 
+// AI: Validates a %n backreference in the pattern and returns its capture
+// AI: index (1 is the first capture).
 static int check_capture (MatchState *ms, int l) {
   l -= '1';
   if (l_unlikely(l < 0 || l >= ms->level ||
@@ -394,6 +434,8 @@ static int check_capture (MatchState *ms, int l) {
 }
 
 
+// AI: Finds the innermost still-open capture, i.e. the one whose closing
+// AI: ')' is being matched now.
 static int capture_to_close (MatchState *ms) {
   int level = ms->level;
   for (level--; level>=0; level--)
@@ -402,6 +444,9 @@ static int capture_to_close (MatchState *ms) {
 }
 
 
+// AI: Skips over one pattern item: a plain char, an escaped char, or a '[...]'
+// AI: set (handling '^' and escaped ']'), and returns where the optional
+// AI: repetition suffix would be.
 static const char *classend (MatchState *ms, const char *p) {
   switch (*p++) {
     case L_ESC: {
@@ -426,6 +471,8 @@ static const char *classend (MatchState *ms, const char *p) {
 }
 
 
+// AI: Tests a single character against a %a..%z class; an uppercase class
+// AI: letter negates the test (e.g. %A = "not a letter").
 static int match_class (int c, int cl) {
   int res;
   switch (tolower(cl)) {
@@ -446,6 +493,8 @@ static int match_class (int c, int cl) {
 }
 
 
+// AI: Tests a character against a '[...]' set: supports ranges (a-z),
+// AI: escaped characters (\%d), and a leading '^' that negates the set.
 static int matchbracketclass (int c, const char *p, const char *ec) {
   int sig = 1;
   if (*(p+1) == '^') {
@@ -469,6 +518,8 @@ static int matchbracketclass (int c, const char *p, const char *ec) {
 }
 
 
+// AI: Tests whether one subject character matches the item at 'p' (whose end
+// AI: is 'ep'), handling '.', '%class', '[...]' and plain characters.
 static int singlematch (MatchState *ms, const char *s, const char *p,
                         const char *ep) {
   if (s >= ms->src_end)
@@ -485,6 +536,8 @@ static int singlematch (MatchState *ms, const char *s, const char *p,
 }
 
 
+// AI: Handles '%bxy': matches a balanced run of 'x'...'y', keeping a count
+// AI: of nesting depth; fails if the string ends out of balance.
 static const char *matchbalance (MatchState *ms, const char *s,
                                    const char *p) {
   if (l_unlikely(p >= ms->p_end - 1))
@@ -505,6 +558,8 @@ static const char *matchbalance (MatchState *ms, const char *s,
 }
 
 
+// AI: Handles the greedy '*' and '+' suffixes: consumes as many repetitions
+// AI: as possible, then backtracks one at a time until the rest matches.
 static const char *max_expand (MatchState *ms, const char *s,
                                  const char *p, const char *ep) {
   ptrdiff_t i = 0;  /* counts maximum expand for item */
@@ -520,6 +575,8 @@ static const char *max_expand (MatchState *ms, const char *s,
 }
 
 
+// AI: Handles the lazy '-' suffix: consumes as few repetitions as possible,
+// AI: growing the match one character at a time only if the rest fails.
 static const char *min_expand (MatchState *ms, const char *s,
                                  const char *p, const char *ep) {
   for (;;) {
@@ -533,6 +590,8 @@ static const char *min_expand (MatchState *ms, const char *s,
 }
 
 
+// AI: Opens a capture at '(' (CAP_UNFINISHED for a string, CAP_POSITION for
+// AI: a position capture), undoing it if the rest of the pattern fails.
 static const char *start_capture (MatchState *ms, const char *s,
                                     const char *p, int what) {
   const char *res;
@@ -547,6 +606,8 @@ static const char *start_capture (MatchState *ms, const char *s,
 }
 
 
+// AI: Closes the innermost capture at ')', recording its length; reverts to
+// AI: unfinished if the remainder of the pattern does not match.
 static const char *end_capture (MatchState *ms, const char *s,
                                   const char *p) {
   int l = capture_to_close(ms);
@@ -558,6 +619,8 @@ static const char *end_capture (MatchState *ms, const char *s,
 }
 
 
+// AI: Handles a %n backreference: matches whatever text the n-th capture
+// AI: previously matched (exact bytes).
 static const char *match_capture (MatchState *ms, const char *s, int l) {
   size_t len;
   l = check_capture(ms, l);
@@ -569,6 +632,10 @@ static const char *match_capture (MatchState *ms, const char *s, int l) {
 }
 
 
+// AI: Core recursive pattern matcher: dispatches on the current pattern
+// AI: character (captures, anchors '^'/'$', escapes %b/%f/%n, classes with
+// AI: optional */+/-/? suffixes); uses a goto to turn tail calls into loops
+// AI: and a depth counter to bound recursion.
 static const char *match (MatchState *ms, const char *s, const char *p) {
   if (l_unlikely(ms->matchdepth-- == 0))
     luaL_error(ms->L, "pattern too complex");
@@ -672,6 +739,9 @@ static const char *match (MatchState *ms, const char *s, const char *p) {
 
 
 
+// AI: Plain substring search: memchr locates candidate first bytes, memcmp
+// AI: confirms the rest (empty pattern matches everywhere, longer patterns
+// AI: cannot match).
 static const char *lmemfind (const char *s1, size_t l1,
                                const char *s2, size_t l2) {
   if (l2 == 0) return s1;  /* empty strings are everywhere */
@@ -701,6 +771,8 @@ static const char *lmemfind (const char *s1, size_t l1,
 ** its length and put its address in '*cap'. If it is an integer
 ** (a position), push it on the stack and return CAP_POSITION.
 */
+// AI: Reports capture i: its start and length; i == 0 means the whole match;
+// AI: position captures are pushed directly as an integer.
 static ptrdiff_t get_onecapture (MatchState *ms, int i, const char *s,
                               const char *e, const char **cap) {
   if (i >= ms->level) {
@@ -725,6 +797,7 @@ static ptrdiff_t get_onecapture (MatchState *ms, int i, const char *s,
 /*
 ** Push the i-th capture on the stack.
 */
+// AI: Pushes capture i as a string (position captures were already pushed).
 static void push_onecapture (MatchState *ms, int i, const char *s,
                                                     const char *e) {
   const char *cap;
@@ -735,6 +808,8 @@ static void push_onecapture (MatchState *ms, int i, const char *s,
 }
 
 
+// AI: Pushes every capture of the match; with no captures (and a real match)
+// AI: pushes the whole matched text as the single result.
 static int push_captures (MatchState *ms, const char *s, const char *e) {
   int i;
   int nlevels = (ms->level == 0 && s) ? 1 : ms->level;
@@ -746,6 +821,8 @@ static int push_captures (MatchState *ms, const char *s, const char *e) {
 
 
 /* check whether pattern has no special characters */
+// AI: Fast path: true when the pattern contains no magic characters, so it
+// AI: can be searched for literally.
 static int nospecials (const char *p, size_t l) {
   size_t upto = 0;
   do {
@@ -760,6 +837,8 @@ static int nospecials (const char *p, size_t l) {
 /*
 ** Prepare state for matches. These fields are not affected by each match.
 */
+// AI: Initializes the fields of the match state that stay fixed across all
+// AI: attempts (source/pattern boundaries).
 static void prepstate (MatchState *ms, lua_State *L,
                        const char *s, size_t ls, const char *p, size_t lp) {
   ms->L = L;
@@ -773,12 +852,17 @@ static void prepstate (MatchState *ms, lua_State *L,
 ** (Re)prepare state for a match, setting fields that change during
 ** each match.
 */
+// AI: Resets the per-attempt fields: the recursion budget and the capture
+// AI: counter.
 static void reprepstate (MatchState *ms) {
   ms->matchdepth = MAXCCALLS;
   ms->level = 0;
 }
 
 
+// AI: Shared engine for string.find/string.match: honors a leading '^' as an
+// AI: anchor, uses a plain literal search when requested (or when the pattern
+// AI: has no specials), otherwise tries 'match' at every position.
 static int str_find_aux (lua_State *L, int find) {
   size_t ls, lp;
   const char *s = luaL_checklstring(L, 1, &ls);
@@ -825,11 +909,15 @@ static int str_find_aux (lua_State *L, int find) {
 }
 
 
+// AI: Implements string.find(s, p [, init [, plain]]): returns the match
+// AI: positions plus its captures.
 static int str_find (lua_State *L) {
   return str_find_aux(L, 1);
 }
 
 
+// AI: Implements string.match(s, p [, init]): returns the captures or the
+// AI: whole match, nil when nothing matches.
 static int str_match (lua_State *L) {
   return str_find_aux(L, 0);
 }
@@ -844,6 +932,8 @@ typedef struct GMatchState {
 } GMatchState;
 
 
+// AI: Iterator step for string.gmatch: finds the next match strictly after
+// AI: the end of the previous one (so empty matches do not repeat in place).
 static int gmatch_aux (lua_State *L) {
   GMatchState *gm = (GMatchState *)lua_touserdata(L, lua_upvalueindex(3));
   const char *src;
@@ -860,6 +950,8 @@ static int gmatch_aux (lua_State *L) {
 }
 
 
+// AI: Implements string.gmatch(s, p [, init]): builds a closure holding the
+// AI: source string and match state and returns it as the iterator.
 static int gmatch (lua_State *L) {
   size_t ls, lp;
   const char *s = luaL_checklstring(L, 1, &ls);
@@ -877,6 +969,8 @@ static int gmatch (lua_State *L) {
 }
 
 
+// AI: Expands a replacement template: '%%' -> '%', '%0' -> the whole match,
+// AI: '%n' -> capture n (positions become numbers), anything else errors.
 static void add_s (MatchState *ms, luaL_Buffer *b, const char *s,
                                                    const char *e) {
   size_t l;
@@ -912,6 +1006,9 @@ static void add_s (MatchState *ms, luaL_Buffer *b, const char *s,
 ** Return true if the original string was changed. (Function calls and
 ** table indexing resulting in nil or false do not change the subject.)
 */
+// AI: Appends one replacement for a match: a template string/number, the
+// AI: result of calling a function with the captures, or a table lookup on
+// AI: the first capture; nil/false results keep the original text unchanged.
 static int add_value (MatchState *ms, luaL_Buffer *b, const char *s,
                                       const char *e, int tr) {
   lua_State *L = ms->L;
@@ -948,6 +1045,9 @@ static int add_value (MatchState *ms, luaL_Buffer *b, const char *s,
 }
 
 
+// AI: Implements string.gsub(s, p, repl [, n]): scans for matches (anchored
+// AI: when p starts with '^'), replaces each via add_value, and returns the
+// AI: new string (or the original when nothing changed) plus the count.
 static int str_gsub (lua_State *L) {
   size_t srcl, lp;
   const char *src = luaL_checklstring(L, 1, &srcl);  /* subject */
@@ -1023,6 +1123,8 @@ static int str_gsub (lua_State *L) {
 /*
 ** Add integer part of 'x' to buffer and return new 'x'
 */
+// AI: Helper for hex-float formatting: writes one hex digit for the integer
+// AI: part of 'x' and returns the remaining fraction.
 static lua_Number adddigit (char *buff, unsigned n, lua_Number x) {
   lua_Number dd = l_mathop(floor)(x);  /* get integer part from 'x' */
   int d = (int)dd;
@@ -1031,6 +1133,9 @@ static lua_Number adddigit (char *buff, unsigned n, lua_Number x) {
 }
 
 
+// AI: Formats a float as a hexadecimal numeral (0x1.xxp+e) with a leading
+// AI: digit aligned to a nibble; inf/NaN go through %g and zero gets an
+// AI: explicit exponent.
 static int num2straux (char *buff, unsigned sz, lua_Number x) {
   /* if 'inf' or 'NaN', format it like '%g' */
   if (x != x || x == (lua_Number)HUGE_VAL || x == -(lua_Number)HUGE_VAL)
@@ -1063,6 +1168,8 @@ static int num2straux (char *buff, unsigned sz, lua_Number x) {
 }
 
 
+// AI: %a/%A formatter: produces the hex-float representation, uppercasing
+// AI: everything for %A and rejecting unsupported modifiers.
 static int lua_number2strx (lua_State *L, char *buff, unsigned sz,
                             const char *fmt, lua_Number x) {
   int n = num2straux(buff, sz, x);
@@ -1129,6 +1236,9 @@ static int lua_number2strx (lua_State *L, char *buff, unsigned sz,
 #define MAX_FORMAT	32
 
 
+// AI: Serializes a string as a quoted Lua literal, escaping quotes,
+// AI: backslashes, newlines, and control characters (as \ddd when the next
+// AI: char is a digit).
 static void addquoted (luaL_Buffer *b, const char *s, size_t len) {
   luaL_addchar(b, '"');
   while (len--) {
@@ -1158,6 +1268,8 @@ static void addquoted (luaL_Buffer *b, const char *s, size_t len) {
 ** (to preserve precision); inf, -inf, and NaN are handled separately.
 ** (NaN cannot be expressed as a numeral, so we write '(0/0)' for it.)
 */
+// AI: Serializes a float so Lua can parse it back: hex for normal numbers
+// AI: (preserving precision), "1e9999"/"-1e9999"/(0/0) for inf/NaN.
 static int quotefloat (lua_State *L, char *buff, lua_Number n) {
   const char *s;  /* for the fixed representations */
   if (n == (lua_Number)HUGE_VAL)  /* inf? */
@@ -1182,6 +1294,9 @@ static int quotefloat (lua_State *L, char *buff, lua_Number n) {
 }
 
 
+// AI: Appends a literal form of the argument to the buffer (used by %q):
+// AI: strings are quoted, floats via quotefloat, integers via %d/hex,
+// AI: nil/booleans via tostring, anything else is an error.
 static void addliteral (lua_State *L, luaL_Buffer *b, int arg) {
   switch (lua_type(L, arg)) {
     case LUA_TSTRING: {
@@ -1217,6 +1332,8 @@ static void addliteral (lua_State *L, luaL_Buffer *b, int arg) {
 }
 
 
+// AI: Skips at most two digits (width and precision fields are limited to
+// AI: two digits).
 static const char *get2digits (const char *s) {
   if (isdigit(cast_uchar(*s))) {
     s++;
@@ -1232,6 +1349,8 @@ static const char *get2digits (const char *s) {
 ** be a valid conversion specifier. 'flags' are the accepted flags;
 ** 'precision' signals whether to accept a precision.
 */
+// AI: Validates a format specification: the flags, width, and precision must
+// AI: match the allowed set for that conversion, ending in a letter.
 static void checkformat (lua_State *L, const char *form, const char *flags,
                                        int precision) {
   const char *spec = form + 1;  /* skip '%' */
@@ -1252,6 +1371,8 @@ static void checkformat (lua_State *L, const char *form, const char *flags,
 ** Get a conversion specification and copy it to 'form'.
 ** Return the address of its last character.
 */
+// AI: Copies the current format item ('%' + flags + width + precision +
+// AI: specifier) into 'form' and returns a pointer to its last character.
 static const char *getformat (lua_State *L, const char *strfrmt,
                                             char *form) {
   /* spans flags, width, and precision ('0' is included as a flag) */
@@ -1270,6 +1391,8 @@ static const char *getformat (lua_State *L, const char *strfrmt,
 /*
 ** add length modifier into formats
 */
+// AI: Inserts a length modifier (e.g. 'l' or the lua_Integer length) right
+// AI: before the final conversion character.
 static void addlenmod (char *form, const char *lenmod) {
   size_t l = strlen(form);
   size_t lm = strlen(lenmod);
@@ -1280,6 +1403,9 @@ static void addlenmod (char *form, const char *lenmod) {
 }
 
 
+// AI: Implements string.format: walks the format string copying plain text,
+// AI: then dispatches each '%' item to the matching C formatter with the
+// AI: argument validated as integer/number/string/pointer as appropriate.
 static int str_format (lua_State *L) {
   int top = lua_gettop(L);
   int arg = 1;
@@ -1454,8 +1580,11 @@ typedef enum KOption {
 ** Read an integer numeral from string 'fmt' or return 'df' if
 ** there is no numeral
 */
+// AI: True for ASCII decimal digits.
 static int digit (int c) { return '0' <= c && c <= '9'; }
 
+// AI: Reads an optional decimal numeral from the format string, returning
+// AI: the default 'df' when there is none.
 static size_t getnum (const char **fmt, size_t df) {
   if (!digit(**fmt))  /* no number? */
     return df;  /* return default value */
@@ -1473,6 +1602,8 @@ static size_t getnum (const char **fmt, size_t df) {
 ** Read an integer numeral and raises an error if it is larger
 ** than the maximum size of integers.
 */
+// AI: Reads a size numeral for the i/I/s/c options and rejects sizes outside
+// AI: [1, MAXINTSIZE].
 static unsigned getnumlimit (Header *h, const char **fmt, size_t df) {
   size_t sz = getnum(fmt, df);
   if (l_unlikely((sz - 1u) >= MAXINTSIZE))
@@ -1485,6 +1616,8 @@ static unsigned getnumlimit (Header *h, const char **fmt, size_t df) {
 /*
 ** Initialize Header
 */
+// AI: Initializes the pack/unpack header: native endianness and the default
+// AI: maximum alignment of 1.
 static void initheader (lua_State *L, Header *h) {
   h->L = L;
   h->islittle = nativeendian.little;
@@ -1495,6 +1628,8 @@ static void initheader (lua_State *L, Header *h) {
 /*
 ** Read and classify next option. 'size' is filled with option's size.
 */
+// AI: Reads and classifies one format option (b/B/h/H/l/L/j/J/T/f/n/d/i/I/
+// AI: s/c/z/x/X and the '<' '>' '=' '!' controls), reporting its size.
 static KOption getoption (Header *h, const char **fmt, size_t *size) {
   /* dummy structure to get native alignment requirements */
   struct cD { char c; union { LUAI_MAXALIGN; } u; };
@@ -1548,6 +1683,9 @@ static KOption getoption (Header *h, const char **fmt, size_t *size) {
 ** the maximum alignment ('maxalign'). Kchar option needs no alignment
 ** despite its size.
 */
+// AI: Completes getoption with alignment: computes how many padding bytes
+// AI: precede the item ('X' reads its alignment from the next option) and
+// AI: enforces the '!' maximum-alignment limit.
 static KOption getdetails (Header *h, size_t totalsize, const char **fmt,
                            size_t *psize, unsigned *ntoalign) {
   KOption opt = getoption(h, fmt, psize);
@@ -1581,6 +1719,9 @@ static KOption getdetails (Header *h, size_t totalsize, const char **fmt,
 ** the size of a Lua integer, correcting the extra sign-extension
 ** bytes if necessary (by default they would be zeros).
 */
+// AI: Writes an integer as 'size' bytes in the requested endianness; when
+// AI: 'size' exceeds a Lua integer, negative values sign-extend the extra
+// AI: bytes.
 static void packint (luaL_Buffer *b, lua_Unsigned n,
                      int islittle, unsigned size, int neg) {
   char *buff = luaL_prepbuffsize(b, size);
@@ -1602,6 +1743,8 @@ static void packint (luaL_Buffer *b, lua_Unsigned n,
 ** Copy 'size' bytes from 'src' to 'dest', correcting endianness if
 ** given 'islittle' is different from native endianness.
 */
+// AI: Copies 'size' bytes between native and requested byte order,
+// AI: memcpy-ing directly when they agree and reversing otherwise.
 static void copywithendian (char *dest, const char *src,
                             unsigned size, int islittle) {
   if (islittle == nativeendian.little)
@@ -1614,6 +1757,8 @@ static void copywithendian (char *dest, const char *src,
 }
 
 
+// AI: Implements string.pack(fmt, ...): serializes the arguments per the
+// AI: format, applying alignment, sizes, and endianness, into one string.
 static int str_pack (lua_State *L) {
   luaL_Buffer b;
   Header h;
@@ -1720,6 +1865,8 @@ static int str_pack (lua_State *L) {
 }
 
 
+// AI: Implements string.packsize(fmt): the fixed byte size a format
+// AI: requires, rejecting variable-length options (s, z).
 static int str_packsize (lua_State *L) {
   Header h;
   const char *fmt = luaL_checkstring(L, 1);  /* format string */
@@ -1749,6 +1896,9 @@ static int str_packsize (lua_State *L) {
 ** it must check the unread bytes to see whether they do not cause an
 ** overflow.
 */
+// AI: Reads an integer of 'size' bytes with the given endianness, doing sign
+// AI: extension for short signed sizes and checking the extra bytes for
+// AI: longer ones.
 static lua_Integer unpackint (lua_State *L, const char *str,
                               int islittle, int size, int issigned) {
   lua_Unsigned res = 0;
@@ -1775,6 +1925,9 @@ static lua_Integer unpackint (lua_State *L, const char *str,
 }
 
 
+// AI: Implements string.unpack(fmt, s [, pos]): decodes the values per the
+// AI: format (aligning and bounds-checking against the data) and returns
+// AI: them plus the next position.
 static int str_unpack (lua_State *L) {
   Header h;
   const char *fmt = luaL_checkstring(L, 1);
@@ -1875,6 +2028,8 @@ static const luaL_Reg strlib[] = {
 };
 
 
+// AI: Makes the string library the metatable of strings, so that method-like
+// AI: calls (string:len, ...) resolve through __index = the library table.
 static void createmetatable (lua_State *L) {
   /* table to be metatable for strings */
   luaL_newlibtable(L, stringmetamethods);
@@ -1892,6 +2047,7 @@ static void createmetatable (lua_State *L) {
 /*
 ** Open string library
 */
+// AI: Opens the string library and installs the string metatable.
 LUAMOD_API int luaopen_string (lua_State *L) {
   luaL_newlib(L, strlib);
   createmetatable(L);

@@ -41,6 +41,8 @@
 /*
 ** generic equality for strings
 */
+// AI: Generic string equality (length + byte compare) covering short, long and
+// AI: external strings alike.
 int luaS_eqstr (TString *a, TString *b) {
   size_t len1, len2;
   const char *s1 = getlstr(a, len1);
@@ -50,6 +52,8 @@ int luaS_eqstr (TString *a, TString *b) {
 }
 
 
+// AI: Deterministic hash of 'str' folded with the state seed and length, so
+// AI: string-table bucket distribution cannot be predicted by attackers.
 static unsigned luaS_hash (const char *str, size_t l, unsigned seed) {
   unsigned int h = seed ^ cast_uint(l);
   for (; l > 0; l--)
@@ -58,6 +62,8 @@ static unsigned luaS_hash (const char *str, size_t l, unsigned seed) {
 }
 
 
+// AI: Lazily compute and cache a long string's hash on first use; the seed was
+// AI: stored in 'hash' at creation, so repeated calls are cheap.
 unsigned luaS_hashlongstr (TString *ts) {
   lua_assert(ts->tt == LUA_VLNGSTR);
   if (ts->extra == 0) {  /* no hash? */
@@ -69,6 +75,8 @@ unsigned luaS_hashlongstr (TString *ts) {
 }
 
 
+// AI: Rebuild the string table for size 'nsize': clear the new slots and
+// AI: re-chain every string into the bucket given by its hash modulo nsize.
 static void tablerehash (TString **vect, int osize, int nsize) {
   int i;
   for (i = osize; i < nsize; i++)  /* clear new elements */
@@ -92,6 +100,8 @@ static void tablerehash (TString **vect, int osize, int nsize) {
 ** (This can degrade performance, but any non-zero size should work
 ** correctly.)
 */
+// AI: Resize the string table, rehashing around the realloc; on shrink, first
+// AI: depopulate the vanishing part and roll back if realloc fails.
 void luaS_resize (lua_State *L, int nsize) {
   stringtable *tb = &G(L)->strt;
   int osize = tb->size;
@@ -117,6 +127,8 @@ void luaS_resize (lua_State *L, int nsize) {
 ** Clear API string cache. (Entries cannot be empty, so fill them with
 ** a non-collectable string.)
 */
+// AI: Drop from the API string cache any entry the GC would collect, replacing
+// AI: it with the fixed 'memerrmsg' so slots always hold valid strings.
 void luaS_clearcache (global_State *g) {
   int i, j;
   for (i = 0; i < STRCACHE_N; i++)
@@ -130,6 +142,8 @@ void luaS_clearcache (global_State *g) {
 /*
 ** Initialize the string table and the string cache
 */
+// AI: Allocate the initial string table, pre-create and pin the memory-error
+// AI: message, and fill the string cache with it.
 void luaS_init (lua_State *L) {
   global_State *g = G(L);
   int i, j;
@@ -146,6 +160,8 @@ void luaS_init (lua_State *L) {
 }
 
 
+// AI: Header bytes for a long string: LSTRREG embeds its contents inline,
+// AI: while LSTRFIX/LSTRMEM keep only the header (contents live externally).
 size_t luaS_sizelngstr (size_t len, int kind) {
   switch (kind) {
     case LSTRREG:  /* regular long string */
@@ -164,6 +180,8 @@ size_t luaS_sizelngstr (size_t len, int kind) {
 /*
 ** creates a new string object
 */
+// AI: Allocate a string object via the GC ('luaC_newobj') and set its hash and
+// AI: 'extra' fields; the caller fills in kind-specific data.
 static TString *createstrobj (lua_State *L, size_t totalsize, lu_byte tag,
                               unsigned h) {
   TString *ts;
@@ -176,6 +194,8 @@ static TString *createstrobj (lua_State *L, size_t totalsize, lu_byte tag,
 }
 
 
+// AI: Create a regular long string of length 'l' with inline contents and a
+// AI: trailing NUL; its hash is seeded but only computed on first use.
 TString *luaS_createlngstrobj (lua_State *L, size_t l) {
   size_t totalsize = luaS_sizelngstr(l, LSTRREG);
   TString *ts = createstrobj(L, totalsize, LUA_VLNGSTR, G(L)->seed);
@@ -187,6 +207,7 @@ TString *luaS_createlngstrobj (lua_State *L, size_t l) {
 }
 
 
+// AI: Unlink 'ts' from its string-table bucket (only short strings live there).
 void luaS_remove (lua_State *L, TString *ts) {
   stringtable *tb = &G(L)->strt;
   TString **p = &tb->hash[lmod(ts->hash, tb->size)];
@@ -197,6 +218,8 @@ void luaS_remove (lua_State *L, TString *ts) {
 }
 
 
+// AI: Grow the string table (doubling); when 'nuse' would overflow, run an
+// AI: emergency collection first and raise if that is not enough.
 static void growstrtab (lua_State *L, stringtable *tb) {
   if (l_unlikely(tb->nuse == INT_MAX)) {  /* too many strings? */
     luaC_fullgc(L, 1);  /* try to free some... */
@@ -211,6 +234,8 @@ static void growstrtab (lua_State *L, stringtable *tb) {
 /*
 ** Checks whether short string exists and reuses it or creates a new one.
 */
+// AI: Intern 'str': hash it, scan the bucket for an equal string (resurrecting
+// AI: dead matches), or grow the table and insert a new TString at the head.
 static TString *internshrstr (lua_State *L, const char *str, size_t l) {
   TString *ts;
   global_State *g = G(L);
@@ -246,6 +271,8 @@ static TString *internshrstr (lua_State *L, const char *str, size_t l) {
 /*
 ** new string (with explicit length)
 */
+// AI: Create a string with explicit length: short strings are interned, long
+// AI: strings get a fresh uninterned object (after an overflow check).
 TString *luaS_newlstr (lua_State *L, const char *str, size_t l) {
   if (l <= LUAI_MAXSHORTLEN)  /* short string? */
     return internshrstr(L, str, l);
@@ -266,6 +293,8 @@ TString *luaS_newlstr (lua_State *L, const char *str, size_t l) {
 ** only zero-terminated strings, so it is safe to use 'strcmp' to
 ** check hits.
 */
+// AI: Create/reuse a zero-terminated string, probing the address-keyed cache
+// AI: first (LRU eviction); misses fall through to 'luaS_newlstr'.
 TString *luaS_new (lua_State *L, const char *str) {
   unsigned int i = point2uint(str) % STRCACHE_N;  /* hash */
   int j;
@@ -283,6 +312,7 @@ TString *luaS_new (lua_State *L, const char *str) {
 }
 
 
+// AI: Allocate a userdata of size 's' with 'nuvalue' user values, all nil.
 Udata *luaS_newudata (lua_State *L, size_t s, unsigned short nuvalue) {
   Udata *u;
   int i;
@@ -308,6 +338,8 @@ struct NewExt {
 };
 
 
+// AI: Allocation-only helper for external strings, run under protection so a
+// AI: memory error can be reported without leaking the external buffer.
 static void f_newext (lua_State *L, void *ud) {
   struct NewExt *ne = cast(struct NewExt *, ud);
   size_t size = luaS_sizelngstr(0, ne->kind);
@@ -315,6 +347,8 @@ static void f_newext (lua_State *L, void *ud) {
 }
 
 
+// AI: Wrap caller-provided external memory as a long string: LSTRFIX is never
+// AI: freed, LSTRMEM records 'falloc'/'ud' so 'freeobj' can release it.
 TString *luaS_newextlstr (lua_State *L,
 	          const char *s, size_t len, lua_Alloc falloc, void *ud) {
   struct NewExt ne;
@@ -341,6 +375,8 @@ TString *luaS_newextlstr (lua_State *L,
 /*
 ** Normalize an external string: If it is short, internalize it.
 */
+// AI: Normalize an external string for use as a table key: long ones are fine
+// AI: as-is, short ones are copied and interned into the string table.
 TString *luaS_normstr (lua_State *L, TString *ts) {
   size_t len = ts->u.lnglen;
   if (len > LUAI_MAXSHORTLEN)

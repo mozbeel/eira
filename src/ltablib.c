@@ -34,6 +34,8 @@
 #define aux_getn(L,n,w)	(checktab(L, n, (w) | TAB_L), luaL_len(L, n))
 
 
+// AI: Helper: raw-get 'key' from the table at index 'n' and return whether
+// AI: it is non-nil (used to probe for required metamethods).
 static int checkfield (lua_State *L, const char *key, int n) {
   lua_pushstring(L, key);
   return (lua_rawget(L, -n) != LUA_TNIL);
@@ -61,6 +63,8 @@ static void checktab (lua_State *L, int arg, int what) {
 }
 
 
+// AI: Implements table.create(n [, r]): pre-allocates a table with room for
+// AI: n sequence elements and r others, capping both at INT_MAX.
 static int tcreate (lua_State *L) {
   lua_Unsigned sizeseq = (lua_Unsigned)luaL_checkinteger(L, 1);
   lua_Unsigned sizerest = (lua_Unsigned)luaL_optinteger(L, 2, 0);
@@ -71,6 +75,8 @@ static int tcreate (lua_State *L) {
 }
 
 
+// AI: Implements table.insert: with two arguments appends at the end; with
+// AI: three, shifts t[pos..] up by one to make room, then stores the value.
 static int tinsert (lua_State *L) {
   lua_Integer pos;  /* where to insert new element */
   lua_Integer e = aux_getn(L, 1, TAB_RW);
@@ -101,6 +107,8 @@ static int tinsert (lua_State *L) {
 }
 
 
+// AI: Implements table.remove(list [, pos]): shifts the tail down one slot
+// AI: and returns the removed element (default: the last one).
 static int tremove (lua_State *L) {
   lua_Integer size = aux_getn(L, 1, TAB_RW);
   lua_Integer pos = luaL_optinteger(L, 2, size);
@@ -125,6 +133,9 @@ static int tremove (lua_State *L) {
 ** "possible" means destination after original range, or smaller
 ** than origin, or copying to another table.
 */
+// AI: Implements table.move(a1, f, e, t [, a2]): copies [f..e] from a1 into
+// AI: a2 (default a1) starting at t, going forward when the ranges do not
+// AI: overlap (better for rehashing), backward otherwise.
 static int tmove (lua_State *L) {
   lua_Integer f = luaL_checkinteger(L, 2);
   lua_Integer e = luaL_checkinteger(L, 3);
@@ -157,6 +168,8 @@ static int tmove (lua_State *L) {
 }
 
 
+// AI: Helper: appends element t[i] to the buffer, raising unless it is a
+// AI: string (or coercible to one).
 static void addfield (lua_State *L, luaL_Buffer *b, lua_Integer i) {
   lua_geti(L, 1, i);
   if (l_unlikely(!lua_isstring(L, -1)))
@@ -166,6 +179,8 @@ static void addfield (lua_State *L, luaL_Buffer *b, lua_Integer i) {
 }
 
 
+// AI: Implements table.concat(list [, sep [, i [, j]]]): joins elements in
+// AI: [i, j] (defaults 1..len) with 'sep' between them.
 static int tconcat (lua_State *L) {
   luaL_Buffer b;
   lua_Integer last = aux_getn(L, 1, TAB_R);
@@ -191,6 +206,8 @@ static int tconcat (lua_State *L) {
 ** =======================================================
 */
 
+// AI: Implements table.pack(...): returns a new table with the arguments as
+// AI: elements 1..n and the count stored in field 'n'.
 static int tpack (lua_State *L) {
   int i;
   int n = lua_gettop(L);  /* number of elements to pack */
@@ -204,6 +221,8 @@ static int tpack (lua_State *L) {
 }
 
 
+// AI: Implements table.unpack(list [, i [, j]]): returns the elements in
+// AI: [i, j] (defaults 1..len), checking the stack can hold them all.
 static int tunpack (lua_State *L) {
   lua_Unsigned n;
   lua_Integer len = aux_getn(L, 1, TAB_R);
@@ -261,6 +280,8 @@ typedef unsigned int IdxT;
 #define RANLIMIT	100u
 
 
+// AI: Helper: moves the elements at indices i and j between the array and
+// AI: the stack top, swapping the two values (used all over the quicksort).
 static void set2 (lua_State *L, IdxT i, IdxT j) {
   seti(L, 1, i);
   seti(L, 1, j);
@@ -271,6 +292,9 @@ static void set2 (lua_State *L, IdxT i, IdxT j) {
 ** Return true iff value at stack index 'a' is less than the value at
 ** index 'b' (according to the order of the sort).
 */
+// AI: Compares the values at stack positions 'a' and 'b': with no function,
+// AI: uses < ; otherwise calls the user function, compensating the stack
+// AI: indices for the pushed function.
 static int sort_comp (lua_State *L, int a, int b) {
   if (lua_isnil(L, 2))  /* no function? */
     return lua_compare(L, a, b, LUA_OPLT);  /* a < b */
@@ -294,6 +318,8 @@ static int sort_comp (lua_State *L, int a, int b) {
 ** Pos-condition: a[lo .. i - 1] <= a[i] == P <= a[i + 1 .. up]
 ** returns 'i'.
 */
+// AI: Partitions [lo..up] around the pivot P (kept on the stack), returning
+// AI: its final index; errors if the order function is inconsistent.
 static IdxT partition (lua_State *L, IdxT lo, IdxT up) {
   IdxT i = lo;  /* will be incremented before first use */
   IdxT j = up - 1;  /* will be decremented before first use */
@@ -330,6 +356,8 @@ static IdxT partition (lua_State *L, IdxT lo, IdxT up) {
 ** Choose an element in the middle (2nd-3th quarters) of [lo,up]
 ** "randomized" by 'rnd'
 */
+// AI: Chooses a pivot in the middle quarters of [lo, up], pseudo-randomized
+// AI: by 'rnd' to avoid quadratic behavior on sorted input.
 static IdxT choosePivot (IdxT lo, IdxT up, unsigned int rnd) {
   IdxT r4 = (up - lo) / 4;  /* range/4 */
   IdxT p = (rnd ^ lo ^ up) % (r4 * 2) + (lo + r4);
@@ -341,6 +369,9 @@ static IdxT choosePivot (IdxT lo, IdxT up, unsigned int rnd) {
 /*
 ** Quicksort algorithm (recursive function)
 */
+// AI: Recursive quicksort: sorts [lo..up] with a tail-call loop, sorting the
+// AI: smaller partition first to limit stack depth and re-randomizing the
+// AI: pivot when a partition is too imbalanced.
 static void auxsort (lua_State *L, IdxT lo, IdxT up, unsigned rnd) {
   while (lo < up) {  /* loop for tail recursion */
     IdxT p;  /* Pivot index */
@@ -394,6 +425,8 @@ static void auxsort (lua_State *L, IdxT lo, IdxT up, unsigned rnd) {
 }
 
 
+// AI: Implements table.sort(list [, comp]): validates the comparator, then
+// AI: quicksorts the sequence (1..#list) in place, returning nothing.
 static int sort (lua_State *L) {
   lua_Integer n = aux_getn(L, 1, TAB_RW);
   if (n > 1) {  /* non-trivial interval? */
@@ -422,6 +455,7 @@ static const luaL_Reg tab_funcs[] = {
 };
 
 
+// AI: Opens the table library.
 LUAMOD_API int luaopen_table (lua_State *L) {
   luaL_newlib(L, tab_funcs);
   return 1;

@@ -35,6 +35,8 @@
 
 /* from strlib */
 /* translate a relative string position: negative means back from end */
+// AI: Translates a relative string position: negatives count back from the
+// AI: end; result is clipped to [0, len].
 static lua_Integer u_posrelat (lua_Integer pos, size_t len) {
   if (pos >= 0) return pos;
   else if (0u - (size_t)pos > len) return 0;
@@ -49,6 +51,9 @@ static lua_Integer u_posrelat (lua_Integer pos, size_t len) {
 ** entry forces an error for non-ASCII bytes with no continuation
 ** bytes (count == 0).
 */
+// AI: Decodes one UTF-8 sequence: validates continuation bytes, minimum
+// AI: values per length (overlong checks), and in strict mode also rejects
+// AI: surrogates and code points above U+10FFFF.
 static const char *utf8_decode (const char *s, l_uint32 *val, int strict) {
   static const l_uint32 limits[] =
         {~(l_uint32)0, 0x80, 0x800, 0x10000u, 0x200000u, 0x4000000u};
@@ -87,6 +92,9 @@ static const char *utf8_decode (const char *s, l_uint32 *val, int strict) {
 ** start in the range [i,j], or nil + current position if 's' is not
 ** well formed in that interval
 */
+// AI: Implements utf8.len(s [, i [, j [, lax]]]): counts the characters
+// AI: starting in [i, j], returning fail + current position on malformed
+// AI: input (unless lax).
 static int utflen (lua_State *L) {
   lua_Integer n = 0;  /* counter for the number of characters */
   size_t len;  /* string length in bytes */
@@ -117,6 +125,8 @@ static int utflen (lua_State *L) {
 ** codepoint(s, [i, [j [, lax]]]) -> returns codepoints for all
 ** characters that start in the range [i,j]
 */
+// AI: Implements utf8.codepoint(s [, i [, j [, lax]]]): pushes the code
+// AI: point of every character starting in [i, j].
 static int codepoint (lua_State *L) {
   size_t len;
   const char *s = luaL_checklstring(L, 1, &len);
@@ -146,6 +156,8 @@ static int codepoint (lua_State *L) {
 }
 
 
+// AI: Helper: validates a code point (<= MAXUTF) and pushes its UTF-8
+// AI: encoding as a string.
 static void pushutfchar (lua_State *L, int arg) {
   lua_Unsigned code = (lua_Unsigned)luaL_checkinteger(L, arg);
   luaL_argcheck(L, code <= MAXUTF, arg, "value out of range");
@@ -156,6 +168,8 @@ static void pushutfchar (lua_State *L, int arg) {
 /*
 ** utfchar(n1, n2, ...)  -> char(n1)..char(n2)...
 */
+// AI: Implements utf8.char(...): concatenates the UTF-8 encoding of each
+// AI: code point into a single string.
 static int utfchar (lua_State *L) {
   int n = lua_gettop(L);  /* number of arguments */
   if (n == 1)  /* optimize common case of single char */
@@ -178,6 +192,9 @@ static int utfchar (lua_State *L) {
 ** offset(s, n, [i])  -> indices where n-th character counting from
 **   position 'i' starts and ends; 0 means character at 'i'.
 */
+// AI: Implements utf8.offset(s, n [, i]): returns the byte positions where
+// AI: the n-th character from i starts and ends (n == 0 means the character
+// AI: at i); stepping moves over full sequences, never inside one.
 static int byteoffset (lua_State *L) {
   size_t len;
   const char *s = luaL_checklstring(L, 1, &len);
@@ -228,6 +245,9 @@ static int byteoffset (lua_State *L) {
 }
 
 
+// AI: One step of the utf8.codes iterator: skips continuation bytes, then
+// AI: decodes and returns (byte position + 1, code point), or nothing when
+// AI: the string is exhausted.
 static int iter_aux (lua_State *L, int strict) {
   size_t len;
   const char *s = luaL_checklstring(L, 1, &len);
@@ -249,15 +269,19 @@ static int iter_aux (lua_State *L, int strict) {
 }
 
 
+// AI: Strict variant of the codes iterator (rejects malformed input).
 static int iter_auxstrict (lua_State *L) {
   return iter_aux(L, 1);
 }
 
+// AI: Lax variant of the codes iterator (skips malformed bytes).
 static int iter_auxlax (lua_State *L) {
   return iter_aux(L, 0);
 }
 
 
+// AI: Implements utf8.codes(s [, lax]): returns the (function, string, 0)
+// AI: triple for iterating over the string's code points.
 static int iter_codes (lua_State *L) {
   int lax = lua_toboolean(L, 2);
   const char *s = luaL_checkstring(L, 1);
@@ -285,6 +309,8 @@ static const luaL_Reg funcs[] = {
 };
 
 
+// AI: Opens the utf8 library and fills the charpattern placeholder with a
+// AI: Lua pattern matching a single (non-ASCII) UTF-8 character.
 LUAMOD_API int luaopen_utf8 (lua_State *L) {
   luaL_newlib(L, funcs);
   lua_pushlstring(L, UTF8PATT, sizeof(UTF8PATT)/sizeof(char) - 1);

@@ -33,18 +33,23 @@ static const char *const HOOKKEY = "_HOOKKEY";
 ** guarantees about its stack space; any push in L1 must be
 ** checked.
 */
+// AI: Ensures thread L1 has room for 'n' values; only necessary when
+// AI: L1 is another thread whose stack size is unknown.
 static void checkstack (lua_State *L, lua_State *L1, int n) {
   if (l_unlikely(L != L1 && !lua_checkstack(L1, n)))
     luaL_error(L, "stack overflow");
 }
 
 
+// AI: Implements debug.getregistry(): returns the registry table.
 static int db_getregistry (lua_State *L) {
   lua_pushvalue(L, LUA_REGISTRYINDEX);
   return 1;
 }
 
 
+// AI: Implements debug.getmetatable(): returns the metatable of a value,
+// AI: ignoring the __metatable protection.
 static int db_getmetatable (lua_State *L) {
   luaL_checkany(L, 1);
   if (!lua_getmetatable(L, 1)) {
@@ -54,6 +59,8 @@ static int db_getmetatable (lua_State *L) {
 }
 
 
+// AI: Implements debug.setmetatable(): sets a metatable directly,
+// AI: bypassing the __metatable guard.
 static int db_setmetatable (lua_State *L) {
   int t = lua_type(L, 2);
   luaL_argexpected(L, t == LUA_TNIL || t == LUA_TTABLE, 2, "nil or table");
@@ -63,6 +70,8 @@ static int db_setmetatable (lua_State *L) {
 }
 
 
+// AI: Implements debug.getuservalue(): reads the n-th associated value
+// AI: of a userdata; fails when the argument is not a userdata.
 static int db_getuservalue (lua_State *L) {
   int n = (int)luaL_optinteger(L, 2, 1);
   if (lua_type(L, 1) != LUA_TUSERDATA)
@@ -75,6 +84,8 @@ static int db_getuservalue (lua_State *L) {
 }
 
 
+// AI: Implements debug.setuservalue(): writes the n-th associated value
+// AI: of a userdata; fails when the index is out of range.
 static int db_setuservalue (lua_State *L) {
   int n = (int)luaL_optinteger(L, 3, 1);
   luaL_checktype(L, 1, LUA_TUSERDATA);
@@ -92,6 +103,8 @@ static int db_setuservalue (lua_State *L) {
 ** 1 if this argument is present (so that functions can skip it to
 ** access their other arguments)
 */
+// AI: Helper for functions that accept an optional first thread
+// AI: argument; sets *arg to 1 when present so callers can skip it.
 static lua_State *getthread (lua_State *L, int *arg) {
   if (lua_isthread(L, 1)) {
     *arg = 1;
@@ -109,16 +122,19 @@ static lua_State *getthread (lua_State *L, int *arg) {
 ** from 'lua_getinfo' into result table. Key is always a string;
 ** value can be a string, an int, or a boolean.
 */
+// AI: Setter for the getinfo result table: stores a string value.
 static void settabss (lua_State *L, const char *k, const char *v) {
   lua_pushstring(L, v);
   lua_setfield(L, -2, k);
 }
 
+// AI: Setter for the getinfo result table: stores an integer value.
 static void settabsi (lua_State *L, const char *k, int v) {
   lua_pushinteger(L, v);
   lua_setfield(L, -2, k);
 }
 
+// AI: Setter for the getinfo result table: stores a boolean value.
 static void settabsb (lua_State *L, const char *k, int v) {
   lua_pushboolean(L, v);
   lua_setfield(L, -2, k);
@@ -132,6 +148,8 @@ static void settabsb (lua_State *L, const char *k, int v) {
 ** 'lua_getinfo' on top of the result table so that it can call
 ** 'lua_setfield'.
 */
+// AI: Moves an extra result produced by lua_getinfo (function or active
+// AI: lines) from the target thread's stack onto the result table.
 static void treatstackoption (lua_State *L, lua_State *L1, const char *fname) {
   if (L == L1)
     lua_rotate(L, -2, 1);  /* exchange object and table */
@@ -147,6 +165,8 @@ static void treatstackoption (lua_State *L, lua_State *L1, const char *fname) {
 ** two optional outputs (function and line table) from function
 ** 'lua_getinfo'.
 */
+// AI: Implements debug.getinfo(): dispatches on the option string,
+// AI: filling a new table with the requested fields.
 static int db_getinfo (lua_State *L) {
   lua_Debug ar;
   int arg;
@@ -203,6 +223,8 @@ static int db_getinfo (lua_State *L) {
 }
 
 
+// AI: Implements debug.getlocal(): returns the n-th local of a function
+// AI: (name only) or of a stack level (name + value).
 static int db_getlocal (lua_State *L) {
   int arg;
   lua_State *L1 = getthread(L, &arg);
@@ -234,6 +256,8 @@ static int db_getlocal (lua_State *L) {
 }
 
 
+// AI: Implements debug.setlocal(): assigns a value to the n-th local of
+// AI: a stack level and returns its name.
 static int db_setlocal (lua_State *L) {
   int arg;
   const char *name;
@@ -258,6 +282,8 @@ static int db_setlocal (lua_State *L) {
 /*
 ** get (if 'get' is true) or set an upvalue from a closure
 */
+// AI: Shared code for getupvalue/setupvalue: returns (name, value) when
+// AI: reading, or just (name) when writing.
 static int auxupvalue (lua_State *L, int get) {
   const char *name;
   int n = (int)luaL_checkinteger(L, 2);  /* upvalue index */
@@ -270,11 +296,15 @@ static int auxupvalue (lua_State *L, int get) {
 }
 
 
+// AI: Implements debug.getupvalue(): returns the name and current value
+// AI: of the n-th upvalue.
 static int db_getupvalue (lua_State *L) {
   return auxupvalue(L, 1);
 }
 
 
+// AI: Implements debug.setupvalue(): assigns to the n-th upvalue and
+// AI: returns its name.
 static int db_setupvalue (lua_State *L) {
   luaL_checkany(L, 3);
   return auxupvalue(L, 0);
@@ -285,6 +315,8 @@ static int db_setupvalue (lua_State *L) {
 ** Check whether a given upvalue from a given closure exists and
 ** returns its index
 */
+// AI: Validates an upvalue index of a closure and returns its stable
+// AI: identity pointer (used to compare/join upvalues).
 static void *checkupval (lua_State *L, int argf, int argnup, int *pnup) {
   void *id;
   int nup = (int)luaL_checkinteger(L, argnup);  /* upvalue index */
@@ -298,6 +330,8 @@ static void *checkupval (lua_State *L, int argf, int argnup, int *pnup) {
 }
 
 
+// AI: Implements debug.upvalueid(): returns a light userdata identifying
+// AI: an upvalue, shared by all closures over the same variable.
 static int db_upvalueid (lua_State *L) {
   void *id = checkupval(L, 1, 2, NULL);
   if (id != NULL)
@@ -308,6 +342,8 @@ static int db_upvalueid (lua_State *L) {
 }
 
 
+// AI: Implements debug.upvaluejoin(): makes the first closure's upvalue
+// AI: share the same cell as the second's, so both see the same value.
 static int db_upvaluejoin (lua_State *L) {
   int n1, n2;
   checkupval(L, 1, 2, &n1);
@@ -323,6 +359,8 @@ static int db_upvaluejoin (lua_State *L) {
 ** Call hook function registered at hook table for the current
 ** thread (if there is one)
 */
+// AI: C hook installed by sethook: looks up the thread's Lua hook in
+// AI: the registry and calls it with the event name and current line.
 static void hookf (lua_State *L, lua_Debug *ar) {
   static const char *const hooknames[] =
     {"call", "return", "line", "count", "tail call"};
@@ -342,6 +380,8 @@ static void hookf (lua_State *L, lua_Debug *ar) {
 /*
 ** Convert a string mask (for 'sethook') into a bit mask
 */
+// AI: Translates the hook mask string ("crl") plus a count into the
+// AI: LUA_MASK* bit mask expected by lua_sethook.
 static int makemask (const char *smask, int count) {
   int mask = 0;
   if (strchr(smask, 'c')) mask |= LUA_MASKCALL;
@@ -355,6 +395,8 @@ static int makemask (const char *smask, int count) {
 /*
 ** Convert a bit mask (for 'gethook') into a string mask
 */
+// AI: Inverse of makemask: turns a LUA_MASK* bit mask back into a hook
+// AI: mask string for gethook.
 static char *unmakemask (int mask, char *smask) {
   int i = 0;
   if (mask & LUA_MASKCALL) smask[i++] = 'c';
@@ -365,6 +407,9 @@ static char *unmakemask (int mask, char *smask) {
 }
 
 
+// AI: Implements debug.sethook(): stores the Lua hook in a registry
+// AI: table keyed by thread and installs hookf as the C hook; a nil
+// AI: hook removes it.
 static int db_sethook (lua_State *L) {
   int arg, mask, count;
   lua_Hook func;
@@ -395,6 +440,8 @@ static int db_sethook (lua_State *L) {
 }
 
 
+// AI: Implements debug.gethook(): returns the hook (nil, "external hook"
+// AI: or the Lua function), the mask string, and the count.
 static int db_gethook (lua_State *L) {
   int arg;
   lua_State *L1 = getthread(L, &arg);
@@ -420,6 +467,8 @@ static int db_gethook (lua_State *L) {
 }
 
 
+// AI: Implements debug.debug(): an interactive loop that reads commands
+// AI: from stdin and executes them in the current environment.
 static int db_debug (lua_State *L) {
   for (;;) {
     char buffer[250];
@@ -435,6 +484,8 @@ static int db_debug (lua_State *L) {
 }
 
 
+// AI: Implements debug.traceback(): builds an error traceback;
+// AI: non-string messages are returned unchanged.
 static int db_traceback (lua_State *L) {
   int arg;
   lua_State *L1 = getthread(L, &arg);
@@ -449,6 +500,7 @@ static int db_traceback (lua_State *L) {
 }
 
 
+// AI: Registry of the debug library functions.
 static const luaL_Reg dblib[] = {
   {"debug", db_debug},
   {"getuservalue", db_getuservalue},
@@ -470,6 +522,7 @@ static const luaL_Reg dblib[] = {
 };
 
 
+// AI: Opens the debug library table.
 LUAMOD_API int luaopen_debug (lua_State *L) {
   luaL_newlib(L, dblib);
   return 1;

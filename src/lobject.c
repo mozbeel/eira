@@ -34,6 +34,8 @@
 ** Computes ceil(log2(x)), which is the smallest integer n such that
 ** x <= (1 << n).
 */
+// AI: Returns ceil(log2(x)) (smallest n with x <= 2^n) using a 256-entry
+// AI: lookup table; feeds the parameter-byte encoding in luaO_codeparam.
 lu_byte luaO_ceillog2 (unsigned int x) {
   static const lu_byte log_2[256] = {  /* log_2[i - 1] = ceil(log2(i)) */
     0,1,2,2,3,3,3,3,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,
@@ -59,6 +61,8 @@ lu_byte luaO_ceillog2 (unsigned int x) {
 ** to signal that. So, the real value is (1xxxx) * 2^(eeee - 7 - 1) if
 ** eeee != 0, and (xxxx) * 2^-7 otherwise (subnormal numbers).
 */
+// AI: Encodes percentage 'p' as a (eeee xxxx) byte: excess-7 exponent plus a
+// AI: 4-bit mantissa, rounding up and saturating to 0xFF on overflow.
 lu_byte luaO_codeparam (unsigned int p) {
   if (p >= (cast(lu_mem, 0x1F) << (0xF - 7 - 1)) * 100u)  /* overflow? */
     return 0xFF;  /* return maximum value */
@@ -86,6 +90,8 @@ lu_byte luaO_codeparam (unsigned int p) {
 ** more significant bits, as long as the multiplication does not
 ** overflow, so we check which order is best.
 */
+// AI: Decodes a parameter byte (as produced by luaO_codeparam) and multiplies
+// AI: 'x' by that percentage, saturating at MAX_LMEM on overflow.
 l_mem luaO_applyparam (lu_byte p, l_mem x) {
   int m = p & 0xF;  /* mantissa */
   int e = (p >> 4);  /* exponent */
@@ -112,6 +118,8 @@ l_mem luaO_applyparam (lu_byte p, l_mem x) {
 }
 
 
+// AI: Applies an integer arithmetic opcode ('op', a LUA_OP* constant) to two
+// AI: integers; binary results wrap via the intop macros.
 static lua_Integer intarith (lua_State *L, int op, lua_Integer v1,
                                                    lua_Integer v2) {
   switch (op) {
@@ -132,6 +140,9 @@ static lua_Integer intarith (lua_State *L, int op, lua_Integer v1,
 }
 
 
+// AI: Applies a float arithmetic opcode to two numbers through the
+// AI: configurable luai_num* macros (so platforms may supply their own
+// AI: rounding/overflow behavior).
 static lua_Number numarith (lua_State *L, int op, lua_Number v1,
                                                   lua_Number v2) {
   switch (op) {
@@ -148,6 +159,8 @@ static lua_Number numarith (lua_State *L, int op, lua_Number v1,
 }
 
 
+// AI: Raw (metamethod-free) arithmetic: bitwise ops need integers, div/pow
+// AI: need floats. Returns 1 with the result in 'res', or 0 on failure.
 int luaO_rawarith (lua_State *L, int op, const TValue *p1, const TValue *p2,
                    TValue *res) {
   switch (op) {
@@ -185,6 +198,8 @@ int luaO_rawarith (lua_State *L, int op, const TValue *p1, const TValue *p2,
 }
 
 
+// AI: Full arithmetic: tries the raw operation first, then falls back to the
+// AI: binary metamethod (TM_ADD offset by the opcode) writing into 'res'.
 void luaO_arith (lua_State *L, int op, const TValue *p1, const TValue *p2,
                  StkId res) {
   if (!luaO_rawarith(L, op, p1, p2, s2v(res))) {
@@ -194,6 +209,7 @@ void luaO_arith (lua_State *L, int op, const TValue *p1, const TValue *p2,
 }
 
 
+// AI: Maps an ASCII hex character to its 0-15 value (case-insensitive).
 lu_byte luaO_hexavalue (int c) {
   lua_assert(lisxdigit(c));
   if (lisdigit(c)) return cast_byte(c - '0');
@@ -201,6 +217,7 @@ lu_byte luaO_hexavalue (int c) {
 }
 
 
+// AI: Skips an optional sign on a numeral, advancing '*s'; returns 1 for '-'.
 static int isneg (const char **s) {
   if (**s == '-') { (*s)++; return 1; }
   else if (**s == '+') (*s)++;
@@ -225,6 +242,9 @@ static int isneg (const char **s) {
 ** convert a hexadecimal numeric string to a number, following
 ** C99 specification for 'strtod'
 */
+// AI: C99-style strtod for "0x..." hex floats: accumulates base-16 digits
+// AI: (beyond MAXSIGDIG only counted), then combines implicit and 'p' exponents
+// AI: via ldexp. Sets *endptr past the parsed numeral.
 static lua_Number lua_strx2number (const char *s, char **endptr) {
   int dot = lua_getlocaledecpoint();
   lua_Number r = l_mathop(0.0);  /* result (accumulator) */
@@ -288,6 +308,9 @@ static lua_Number lua_strx2number (const char *s, char **endptr) {
 ** fail or the address of the ending '\0' on success. ('mode' == 'x')
 ** means a hexadecimal numeral.
 */
+// AI: Core numeral conversion: delegates to system strtod (or the hex parser),
+// AI: returns a pointer past the parsed numeral (only if it ends cleanly at
+// AI: '\0' after trailing spaces) or NULL.
 static const char *l_str2dloc (const char *s, lua_Number *result, int mode) {
   char *endptr;
   *result = (mode == 'x') ? lua_strx2number(s, &endptr)  /* try to convert */
@@ -311,6 +334,8 @@ static const char *l_str2dloc (const char *s, lua_Number *result, int mode) {
 ** - 'x' means a hexadecimal numeral
 ** - '.' just optimizes the search for the common case (no special chars)
 */
+// AI: Float conversion tolerant of the locale: if the default parse fails it
+// AI: retries on a copy with '.' replaced by the locale's radix mark.
 static const char *l_str2d (const char *s, lua_Number *result) {
   const char *endptr;
   const char *pmode = strpbrk(s, ".xXnN");  /* look for special chars */
@@ -336,6 +361,8 @@ static const char *l_str2d (const char *s, lua_Number *result) {
 #define MAXBY10		cast(lua_Unsigned, LUA_MAXINTEGER / 10)
 #define MAXLASTD	cast_int(LUA_MAXINTEGER % 10)
 
+// AI: Parses a decimal or "0x" integer literal, detecting overflow against
+// AI: LUA_MAXINTEGER; returns the position after the numeral or NULL.
 static const char *l_str2int (const char *s, lua_Integer *result) {
   lua_Unsigned a = 0;
   int empty = 1;
@@ -368,6 +395,8 @@ static const char *l_str2int (const char *s, lua_Integer *result) {
 }
 
 
+// AI: Parses string 's' into a number TValue ('o'), preferring integer form;
+// AI: returns the length of the consumed prefix + 1, or 0 on failure.
 size_t luaO_str2num (const char *s, TValue *o) {
   lua_Integer i; lua_Number n;
   const char *e;
@@ -383,6 +412,8 @@ size_t luaO_str2num (const char *s, TValue *o) {
 }
 
 
+// AI: Writes the UTF-8 encoding of 'x' backwards into 'buff' (UTF8BUFFSZ
+// AI: bytes; at most 7 used) and returns the number of bytes written.
 int luaO_utf8esc (char *buff, l_uint32 x) {
   int n = 1;  /* number of bytes put in buffer (backwards) */
   lua_assert(x <= 0x7FFFFFFFu);
@@ -424,6 +455,9 @@ int luaO_utf8esc (char *buff, l_uint32 x) {
 ** like an integer (without a decimal point or an exponent), add ".0" to
 ** its end.
 */
+// AI: Formats a float; if re-parsing the buffer gives a different value it
+// AI: retries with more precision, then appends ".0" for integer-looking
+// AI: numerals (so "2" does not silently round-trip as an integer).
 static int tostringbuffFloat (lua_Number n, char *buff) {
   /* first conversion */
   int len = l_sprintf(buff, LUA_N2SBUFFSZ, LUA_NUMBER_FMT,
@@ -446,6 +480,8 @@ static int tostringbuffFloat (lua_Number n, char *buff) {
 /*
 ** Convert a number object to a string, adding it to a buffer.
 */
+// AI: Renders any number (integer or float) into 'buff' (LUA_N2SBUFFSZ bytes),
+// AI: returning the length of the resulting text.
 unsigned luaO_tostringbuff (const TValue *obj, char *buff) {
   int len;
   lua_assert(ttisnumber(obj));
@@ -461,6 +497,8 @@ unsigned luaO_tostringbuff (const TValue *obj, char *buff) {
 /*
 ** Convert a number object to a Lua string, replacing the value at 'obj'
 */
+// AI: Converts the number at 'obj' into an interned Lua string, replacing the
+// AI: value in place.
 void luaO_tostring (lua_State *L, TValue *obj) {
   char buff[LUA_N2SBUFFSZ];
   unsigned len = luaO_tostringbuff(obj, buff);
@@ -497,6 +535,7 @@ typedef struct BuffFS {
 } BuffFS;
 
 
+// AI: Initializes a BuffFS pointing at its static 'space' buffer (BUFVFS).
 static void initbuff (lua_State *L, BuffFS *buff) {
   buff->L = L;
   buff->b = buff->space;
@@ -510,6 +549,8 @@ static void initbuff (lua_State *L, BuffFS *buff) {
 ** Push final result from 'luaO_pushvfstring'. This function may raise
 ** errors explicitly or through memory errors, so it must run protected.
 */
+// AI: Pushes the accumulated buffer as a Lua string; raises LUA_ERRMEM on
+// AI: memory errors or appends "..." on length overflow. Runs protected.
 static void pushbuff (lua_State *L, void *ud) {
   BuffFS *buff = cast(BuffFS*, ud);
   switch (buff->err) {
@@ -533,6 +574,9 @@ static void pushbuff (lua_State *L, void *ud) {
 }
 
 
+// AI: Finalizes a BuffFS: pushes the result under protection, frees the
+// AI: dynamic buffer if one was allocated, and returns the pushed string
+// AI: (NULL if an error occurred).
 static const char *clearbuff (BuffFS *buff) {
   lua_State *L = buff->L;
   const char *res;
@@ -546,6 +590,8 @@ static const char *clearbuff (BuffFS *buff) {
 }
 
 
+// AI: Appends 'slen' bytes to a BuffFS, growing/reallocating the buffer as
+// AI: needed; sets 'err' (1 = memory error, 2 = overflow) if it cannot continue.
 static void addstr2buff (BuffFS *buff, const char *str, size_t slen) {
   size_t left = buff->buffsize - buff->blen;  /* space left in the buffer */
   if (buff->err)  /* do nothing else after an error */
@@ -582,6 +628,7 @@ static void addstr2buff (BuffFS *buff, const char *str, size_t slen) {
 /*
 ** Add a numeral to the buffer.
 */
+// AI: Converts a number to text and appends it to the message buffer.
 static void addnum2buff (BuffFS *buff, TValue *num) {
   char numbuff[LUA_N2SBUFFSZ];
   unsigned len = luaO_tostringbuff(num, numbuff);
@@ -593,6 +640,8 @@ static void addnum2buff (BuffFS *buff, TValue *num) {
 ** this function handles only '%d', '%c', '%f', '%p', '%s', and '%%'
    conventional formats, plus Lua-specific '%I' and '%U'
 */
+// AI: Builds a message from a printf-like format (%s %c %d %I %f %p %U %%),
+// AI: pushing the result on the stack and returning it (may raise on error).
 const char *luaO_pushvfstring (lua_State *L, const char *fmt, va_list argp) {
   BuffFS buff;  /* holds last part of the result */
   const char *e;  /* points to next '%' */
@@ -659,6 +708,8 @@ const char *luaO_pushvfstring (lua_State *L, const char *fmt, va_list argp) {
 }
 
 
+// AI: varargs wrapper for luaO_pushvfstring; raises LUA_ERRMEM if building
+// AI: the message failed.
 const char *luaO_pushfstring (lua_State *L, const char *fmt, ...) {
   const char *msg;
   va_list argp;
@@ -679,6 +730,9 @@ const char *luaO_pushfstring (lua_State *L, const char *fmt, ...) {
 
 #define addstr(a,b,l)	( memcpy(a,b,(l) * sizeof(char)), a += (l) )
 
+// AI: Formats a chunk source into a short description ('out', LUA_IDSIZE
+// AI: max): '=...' literal, '@file' (truncated with "..."), or a quoted string
+// AI: source cut at its first newline.
 void luaO_chunkid (char *out, const char *source, size_t srclen) {
   size_t bufflen = LUA_IDSIZE;  /* free space in buffer */
   if (*source == '=') {  /* 'literal' source */

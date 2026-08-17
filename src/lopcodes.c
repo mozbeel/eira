@@ -13,12 +13,20 @@
 #include "lopcodes.h"
 
 
+// AI: lopcodes.c defines the static per-opcode metadata: the 'luaP_opmodes'
+// AI: table encodes, for each OpCode, its instruction format and properties
+// AI: (sets A, is a test, MM instruction, ...), plus the 'isIT' query that the
+// AI: VM and luaK_finish use to track stack 'top'.
 #define opmode(mm,ot,it,t,a,m)  \
     (((mm) << 7) | ((ot) << 6) | ((it) << 5) | ((t) << 4) | ((a) << 3) | (m))
 
 
 /* ORDER OP */
 
+// AI: One row per OpCode (must match the enum order in lopcodes.h: "ORDER OP").
+// AI: Each row packs: MM (metamethod op), OT (produces top for the next
+// AI: instruction), IT (uses top), T (test), A (sets register A) and the mode.
+// AI: The comment column gives the instruction format for each opcode.
 LUAI_DDEF const lu_byte luaP_opmodes[NUM_OPCODES] = {
 /*       MM OT IT T  A  mode		   opcode  */
   opmode(0, 0, 0, 0, 1, iABC)		/* OP_MOVE */
@@ -109,6 +117,8 @@ LUAI_DDEF const lu_byte luaP_opmodes[NUM_OPCODES] = {
 };
 
 
+// AI: Extracts the "uses top" property of opcode 'm' from the modes table
+// AI: (the IT bit); used by luaP_isIT.
 #define testITMode(m)	(luaP_opmodes[m] & (1 << 5))
 
 
@@ -117,6 +127,9 @@ LUAI_DDEF const lu_byte luaP_opmodes[NUM_OPCODES] = {
 ** and for instructions that use multiple values set by the previous
 ** instruction.
 */
+// AI: Returns 1 when instruction 'i' consumes the 'top' set by the previous
+// AI: instruction: OP_SETLIST with vB==0 reads up to top, OP_VARARGPREP always
+// AI: adjusts varargs, and other instructions use top only when B==0.
 int luaP_isIT (Instruction i) {
   OpCode op = GET_OPCODE(i);
   switch (op) {

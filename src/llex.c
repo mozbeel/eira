@@ -29,6 +29,10 @@
 
 
 
+// AI: llex.c implements the lexical analyzer: it turns the raw character
+// AI: stream (ZIO) into a stream of tokens (Token + SemInfo) consumed on demand
+// AI: by the parser. It also interns strings and anchors them in a table so the
+// AI: GC does not collect them during compilation.
 #define next(ls)	(ls->current = zgetc(ls->z))
 
 
@@ -59,6 +63,8 @@ static const char *const luaX_tokens [] = {
 static l_noret lexerror (LexState *ls, const char *msg, int token);
 
 
+// AI: Appends character 'c' to the lexer's token buffer (Mbuffer), growing it
+// AI: by 1.5x when full and raising "lexical element too long" past MAX_SIZE*2/3.
 static void save (LexState *ls, int c) {
   Mbuffer *b = ls->buff;
   if (luaZ_bufflen(b) + 1 > luaZ_sizebuffer(b)) {
@@ -72,6 +78,8 @@ static void save (LexState *ls, int c) {
 }
 
 
+// AI: Creates and GC-fixes the reserved-word TStrings so they are never
+// AI: collected; 'extra' stores the token number so 'isreserved' can map them.
 void luaX_init (lua_State *L) {
   int i;
   TString *e = luaS_newliteral(L, LUA_ENV);  /* create env name */
@@ -84,6 +92,8 @@ void luaX_init (lua_State *L) {
 }
 
 
+// AI: Returns a printable representation of 'token' for error messages: quotes
+// AI: single-char symbols and reserved words, verbatim for names/strings/numerals.
 const char *luaX_token2str (LexState *ls, int token) {
   if (token < FIRST_RESERVED) {  /* single-byte symbols? */
     if (lisprint(token))
@@ -101,6 +111,8 @@ const char *luaX_token2str (LexState *ls, int token) {
 }
 
 
+// AI: Builds the "near <token>" text for syntax errors: dumps the buffered
+// AI: characters of a name/string/number token, or defers to luaX_token2str.
 static const char *txtToken (LexState *ls, int token) {
   switch (token) {
     case TK_NAME: case TK_STRING:
@@ -113,6 +125,8 @@ static const char *txtToken (LexState *ls, int token) {
 }
 
 
+// AI: Reports a syntax error: adds source:line info, appends "near <token>"
+// AI: when given, and throws LUA_ERRSYNTAX (never returns).
 static l_noret lexerror (LexState *ls, const char *msg, int token) {
   msg = luaG_addinfo(ls->L, msg, ls->source, ls->linenumber);
   if (token)
@@ -121,6 +135,8 @@ static l_noret lexerror (LexState *ls, const char *msg, int token) {
 }
 
 
+// AI: Public entry for parser-raised syntax errors, anchored on the current
+// AI: token ('ls->t.token').
 l_noret luaX_syntaxerror (LexState *ls, const char *msg) {
   lexerror(ls, msg, ls->t.token);
 }
@@ -132,6 +148,9 @@ l_noret luaX_syntaxerror (LexState *ls, const char *msg) {
 ** somewhere. It also internalizes long strings, ensuring there is only
 ** one copy of each unique string.
 */
+// AI: Internalizes 'ts' in the scanner table: on a hit reuses the stored
+// AI: TString, otherwise pins 'ts' (via a temporary stack slot) so the GC
+// AI: keeps it alive until the end of compilation. Returns the canonical string.
 static TString *anchorstr (LexState *ls, TString *ts) {
   lua_State *L = ls->L;
   TValue oldts;
@@ -153,6 +172,8 @@ static TString *anchorstr (LexState *ls, TString *ts) {
 /*
 ** Creates a new string and anchors it in scanner's table.
 */
+// AI: Creates (or reuses) a TString from 'str'/'l' and anchors it so the GC
+// AI: does not collect it during compilation.
 TString *luaX_newstring (LexState *ls, const char *str, size_t l) {
   return anchorstr(ls, luaS_newlstr(ls->L, str, l));
 }
@@ -162,6 +183,8 @@ TString *luaX_newstring (LexState *ls, const char *str, size_t l) {
 ** increment line number and skips newline sequence (any of
 ** \n, \r, \n\r, or \r\n)
 */
+// AI: Advances past a newline, consuming the optional second char of \n\r or
+// AI: \r\n, and increments 'linenumber' (error if it overflows INT_MAX).
 static void inclinenumber (LexState *ls) {
   int old = ls->current;
   lua_assert(currIsNewline(ls));
@@ -173,6 +196,10 @@ static void inclinenumber (LexState *ls) {
 }
 
 
+// AI: Binds LexState to input stream 'z' and initializes the tokenizer:
+// AI: preloads 'firstchar', resets line counter/current token, and creates the
+// AI: fixed strings _ENV, "break" (and "global" in compat mode) used by the
+// AI: parser. 'firstchar' is the first char read before the lexer runs.
 void luaX_setinput (lua_State *L, LexState *ls, ZIO *z, TString *source,
                     int firstchar) {
   ls->t.token = 0;
@@ -205,6 +232,8 @@ void luaX_setinput (lua_State *L, LexState *ls, ZIO *z, TString *source,
 */
 
 
+// AI: If the current character is 'c', consumes it (advancing the stream) and
+// AI: returns 1; otherwise returns 0 without consuming anything.
 static int check_next1 (LexState *ls, int c) {
   if (ls->current == c) {
     next(ls);
@@ -218,6 +247,8 @@ static int check_next1 (LexState *ls, int c) {
 ** Check whether current char is in set 'set' (with two chars) and
 ** saves it
 */
+// AI: Like check_next1 but for a 2-char set; on a match it also saves the
+// AI: consumed char into the token buffer (via save_and_next).
 static int check_next2 (LexState *ls, const char *set) {
   lua_assert(set[2] == '\0');
   if (ls->current == set[0] || ls->current == set[1]) {
@@ -241,6 +272,10 @@ static int check_next2 (LexState *ls, const char *set) {
 **
 ** The caller might have already read an initial dot.
 */
+// AI: Reads a numeric literal starting at the current char, parses it with
+// AI: luaO_str2num, and returns TK_INT or TK_FLT with the value in 'seminfo'.
+// AI: A trailing alphabetic char is consumed deliberately to force a
+// AI: "malformed number" error instead of splitting the token.
 static int read_numeral (LexState *ls, SemInfo *seminfo) {
   TValue obj;
   const char *expo = "Ee";
@@ -279,6 +314,9 @@ static int read_numeral (LexState *ls, SemInfo *seminfo) {
 ** return 1 if it is a single bracket (no '='s and no 2nd bracket);
 ** otherwise (an unfinished '[==...') return 0.
 */
+// AI: Reads '[' or ']' plus any run of '='s, leaving the last bracket
+// AI: unconsumed; returns count+2 for a matched pair, 1 for a lone bracket,
+// AI: or 0 for an unfinished '[==...' (see the block comment above).
 static size_t skip_sep (LexState *ls) {
   size_t count = 0;
   int s = ls->current;
@@ -294,6 +332,10 @@ static size_t skip_sep (LexState *ls) {
 }
 
 
+// AI: Consumes a long string or comment until the matching ']=*]' (with the
+// AI: same separator length 'sep'). Newlines are normalized to '\n' and counted;
+// AI: comments (seminfo==NULL) discard text as they go. Builds seminfo->ts from
+// AI: the buffer minus the separator delimiters.
 static void read_long_string (LexState *ls, SemInfo *seminfo, size_t sep) {
   int line = ls->linenumber;  /* initial line (for error message) */
   save_and_next(ls);  /* skip 2nd '[' */
@@ -333,6 +375,8 @@ static void read_long_string (LexState *ls, SemInfo *seminfo, size_t sep) {
 }
 
 
+// AI: Raises a string escape error unless 'c' is true, including the offending
+// AI: character in the message when one is available.
 static void esccheck (LexState *ls, int c, const char *msg) {
   if (!c) {
     if (ls->current != EOZ)
@@ -342,6 +386,8 @@ static void esccheck (LexState *ls, int c, const char *msg) {
 }
 
 
+// AI: Consumes and validates one hexadecimal digit, returning its value
+// AI: (0..15) or raising "hexadecimal digit expected".
 static int gethexa (LexState *ls) {
   save_and_next(ls);
   esccheck (ls, lisxdigit(ls->current), "hexadecimal digit expected");
@@ -349,6 +395,8 @@ static int gethexa (LexState *ls) {
 }
 
 
+// AI: Reads a '\xXX' escape as one byte (exactly two hex digits), then removes
+// AI: the digits from the token buffer and returns the byte value.
 static int readhexaesc (LexState *ls) {
   int r = gethexa(ls);
   r = (r << 4) + gethexa(ls);
@@ -362,6 +410,9 @@ static int readhexaesc (LexState *ls) {
 ** for error reporting in case of errors; 'i' counts the number of
 ** saved characters, so that they can be removed if case of success.
 */
+// AI: Reads a '\u{XXX}' escape, saving the raw characters in the token buffer
+// AI: (counted by 'i') for error reporting and removing them on success.
+// AI: Enforces a 31-bit value and returns the Unicode codepoint.
 static l_uint32 readutf8esc (LexState *ls) {
   l_uint32 r;
   int i = 4;  /* number of chars to be removed: start with #"\u{X" */
@@ -380,6 +431,8 @@ static l_uint32 readutf8esc (LexState *ls) {
 }
 
 
+// AI: Encodes the codepoint read by readutf8esc into 1-4 UTF-8 bytes and
+// AI: appends them to the token buffer.
 static void utf8esc (LexState *ls) {
   char buff[UTF8BUFFSZ];
   int n = luaO_utf8esc(buff, readutf8esc(ls));
@@ -388,6 +441,8 @@ static void utf8esc (LexState *ls) {
 }
 
 
+// AI: Reads up to 3 decimal digits as a '\ddd' escape, erroring when the value
+// AI: exceeds UCHAR_MAX; removes the digits from the token buffer.
 static int readdecesc (LexState *ls) {
   int i;
   int r = 0;  /* result accumulator */
@@ -401,6 +456,10 @@ static int readdecesc (LexState *ls) {
 }
 
 
+// AI: Reads a short string literal delimited by 'del', handling all escape
+// AI: sequences. Keeps the delimiters in the buffer for error messages, then
+// AI: interns the contents (minus delimiters) via luaX_newstring. The 'z'
+// AI: escape zaps a following span of spaces (counting newlines).
 static void read_string (LexState *ls, int del, SemInfo *seminfo) {
   save_and_next(ls);  /* keep delimiter (for error messages) */
   while (ls->current != del) {
@@ -464,6 +523,11 @@ static void read_string (LexState *ls, int del, SemInfo *seminfo) {
 }
 
 
+// AI: The lexer's core state machine: scans one token per call, dispatching on
+// AI: the current character. Handles comments, long strings, multi-char symbols
+// AI: ('..', '==', '<<', '...', ...), numbers, identifiers/reserved words and
+// AI: single-char tokens. Identifier TStrings are interned; reserved words are
+// AI: recognized via 'isreserved' (the 'extra' tag set by luaX_init).
 static int llex (LexState *ls, SemInfo *seminfo) {
   luaZ_resetbuffer(ls->buff);
   for (;;) {
@@ -585,6 +649,10 @@ static int llex (LexState *ls, SemInfo *seminfo) {
 }
 
 
+// AI: Advances to the next token: consumes a previously stored look-ahead
+// AI: token if there is one, otherwise scans a fresh token with 'llex'.
+// AI: Records 'lastline' before moving so error messages can refer to the last
+// AI: consumed token's line.
 void luaX_next (LexState *ls) {
   ls->lastline = ls->linenumber;
   if (ls->lookahead.token != TK_EOS) {  /* is there a look-ahead token? */
@@ -596,6 +664,9 @@ void luaX_next (LexState *ls) {
 }
 
 
+// AI: Scans and stores the token after the current one (one-token look-ahead)
+// AI: without consuming the current token; used by the parser to disambiguate
+// AI: constructs like record fields. Only one look-ahead is allowed at a time.
 int luaX_lookahead (LexState *ls) {
   lua_assert(ls->lookahead.token == TK_EOS);
   ls->lookahead.token = llex(ls, &ls->lookahead.seminfo);

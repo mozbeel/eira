@@ -22,6 +22,10 @@
 ** Any function declared here could be written as an application function.
 */
 
+// AI: lauxlib.c is the auxiliary library (lauxlib.h) built exclusively on the
+// AI: public API from lua.h. It provides error handling, argument checking,
+// AI: buffers, references, chunk loading, and state construction for libraries.
+
 #include "lua.h"
 
 #include "lauxlib.h"
@@ -71,6 +75,9 @@ static int findfield (lua_State *L, int objidx, int level) {
 /*
 ** Search for a name for a function in all loaded modules
 */
+// AI: Tries to find a name for the function described by 'ar' by scanning the
+// AI: "_LOADED" tables and _G; pushes the name (stripped of the "_G." prefix) and
+// AI: returns 1, or returns 0 leaving the stack unchanged.
 static int pushglobalfuncname (lua_State *L, lua_Debug *ar) {
   int top = lua_gettop(L);
   lua_getinfo(L, "f", ar);  /* push function */
@@ -93,6 +100,8 @@ static int pushglobalfuncname (lua_State *L, lua_Debug *ar) {
 }
 
 
+// AI: Pushes a human-readable name for the function in 'ar': its declared name,
+// AI: "main chunk", a found global name, "<file:line>", or "?" as fallback.
 static void pushfuncname (lua_State *L, lua_Debug *ar) {
   if (*ar->namewhat != '\0')  /* is there a name from code? */
     lua_pushfstring(L, "%s '%s'", ar->namewhat, ar->name);  /* use it */
@@ -109,6 +118,8 @@ static void pushfuncname (lua_State *L, lua_Debug *ar) {
 }
 
 
+// AI: Returns the highest call-stack level, first doubling until out of range,
+// AI: then binary-searching for the exact last valid level.
 static int lastlevel (lua_State *L) {
   lua_Debug ar;
   int li = 1, le = 1;
@@ -124,6 +135,9 @@ static int lastlevel (lua_State *L) {
 }
 
 
+// AI: Builds a "stack traceback:" string for thread 'L1' and pushes it on 'L'.
+// AI: 'level' is the first stack level to show, 'msg' an optional prefix. Very
+// AI: deep stacks print the first LEVELS1 and last LEVELS2 frames with a note.
 LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1,
                                 const char *msg, int level) {
   luaL_Buffer b;
@@ -138,6 +152,8 @@ LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1,
   luaL_addstring(&b, "stack traceback:");
   while (lua_getstack(L1, level++, &ar)) {
     if (limit2show-- == 0) {  /* too many levels? */
+      // AI: When the traceback exceeds LEVELS1+LEVELS2 frames, print the first
+      // AI: LEVELS1, a "skipping n levels" note, and the last LEVELS2 frames.
       int n = last - level - LEVELS2 + 1;  /* number of levels to skip */
       lua_pushfstring(L, "\n\t...\t(skipping %d levels)", n);
       luaL_addvalue(&b);  /* add warning about skip */
@@ -168,6 +184,9 @@ LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1,
 ** =======================================================
 */
 
+// AI: Raises "bad argument #N to 'name' (extramsg)" using the calling frame's
+// AI: debug info; accounts for extra arguments and method-colon 'self' params.
+// AI: Returns a value only so callers can write 'return luaL_argerror(...)'.
 LUALIB_API int luaL_argerror (lua_State *L, int arg, const char *extramsg) {
   lua_Debug ar;
   const char *argword;
@@ -194,6 +213,8 @@ LUALIB_API int luaL_argerror (lua_State *L, int arg, const char *extramsg) {
 }
 
 
+// AI: Raises a "tname expected, got <actual type>" error for 'arg', preferring
+// AI: the "__name" metafield to describe the actual type in the message.
 LUALIB_API int luaL_typeerror (lua_State *L, int arg, const char *tname) {
   const char *msg;
   const char *typearg;  /* name for the type of the actual argument */
@@ -208,6 +229,7 @@ LUALIB_API int luaL_typeerror (lua_State *L, int arg, const char *tname) {
 }
 
 
+// AI: Raises a type error for 'arg' naming the built-in type 'tag'.
 static void tag_error (lua_State *L, int arg, int tag) {
   luaL_typeerror(L, arg, lua_typename(L, tag));
 }
@@ -217,6 +239,8 @@ static void tag_error (lua_State *L, int arg, int tag) {
 ** The use of 'lua_pushfstring' ensures this function does not
 ** need reserved stack space when called.
 */
+// AI: Pushes a "source:line: " prefix for the call at 'level' (or an empty
+// AI: string when no info is available), used to prefix error messages.
 LUALIB_API void luaL_where (lua_State *L, int level) {
   lua_Debug ar;
   if (lua_getstack(L, level, &ar)) {  /* check function at level */
@@ -235,6 +259,8 @@ LUALIB_API void luaL_where (lua_State *L, int level) {
 ** not need reserved stack space when called. (At worst, it generates
 ** a memory error instead of the given message.)
 */
+// AI: Prefixes "where" (source:line) info to the formatted message and raises it
+// AI: with lua_error; this function never returns.
 LUALIB_API int luaL_error (lua_State *L, const char *fmt, ...) {
   va_list argp;
   va_start(argp, fmt);
@@ -246,6 +272,9 @@ LUALIB_API int luaL_error (lua_State *L, const char *fmt, ...) {
 }
 
 
+// AI: Converts the result of a C file operation into Lua values: on success
+// AI: pushes 'true' (1 result); on failure pushes fail, "fname: error" and the
+// AI: errno code (3 results). errno is captured before any Lua API call.
 LUALIB_API int luaL_fileresult (lua_State *L, int stat, const char *fname) {
   int en = errno;  /* calls to Lua API may change this value */
   if (stat) {
@@ -288,6 +317,9 @@ LUALIB_API int luaL_fileresult (lua_State *L, int stat, const char *fname) {
 #endif				/* } */
 
 
+// AI: Converts the status of an exec/close operation into fail, "exit"/"signal",
+// AI: and the numeric status (3 results), or forwards to luaL_fileresult when a
+// AI: system errno was set.
 LUALIB_API int luaL_execresult (lua_State *L, int stat) {
   if (stat != 0 && errno != 0)  /* error with an 'errno'? */
     return luaL_fileresult(L, 0, NULL);
@@ -314,6 +346,9 @@ LUALIB_API int luaL_execresult (lua_State *L, int stat) {
 ** =======================================================
 */
 
+// AI: Creates a new metatable named 'tname', registers it in the registry and
+// AI: sets metatable.__name = tname; returns 1, or 0 if the name is already in
+// AI: use (leaving the existing metatable on the stack).
 LUALIB_API int luaL_newmetatable (lua_State *L, const char *tname) {
   if (luaL_getmetatable(L, tname) != LUA_TNIL)  /* name already in use? */
     return 0;  /* leave previous value on top, but return 0 */
@@ -327,12 +362,17 @@ LUALIB_API int luaL_newmetatable (lua_State *L, const char *tname) {
 }
 
 
+// AI: Looks up the named metatable in the registry and sets it as the metatable
+// AI: of the value just below the stack top (popping the metatable).
 LUALIB_API void luaL_setmetatable (lua_State *L, const char *tname) {
   luaL_getmetatable(L, tname);
   lua_setmetatable(L, -2);
 }
 
 
+// AI: Returns the userdata block at 'ud' if it is a full userdata whose
+// AI: metatable is exactly the named registry metatable; otherwise NULL. The
+// AI: stack is left unchanged.
 LUALIB_API void *luaL_testudata (lua_State *L, int ud, const char *tname) {
   void *p = lua_touserdata(L, ud);
   if (p != NULL) {  /* value is a userdata? */
@@ -348,6 +388,8 @@ LUALIB_API void *luaL_testudata (lua_State *L, int ud, const char *tname) {
 }
 
 
+// AI: Like luaL_testudata, but raises a "tname expected, got ..." error when the
+// AI: check fails instead of returning NULL.
 LUALIB_API void *luaL_checkudata (lua_State *L, int ud, const char *tname) {
   void *p = luaL_testudata(L, ud, tname);
   luaL_argexpected(L, p != NULL, ud, tname);
@@ -363,6 +405,9 @@ LUALIB_API void *luaL_checkudata (lua_State *L, int ud, const char *tname) {
 ** =======================================================
 */
 
+// AI: Checks that the string at 'arg' (default 'def' if absent) matches one of
+// AI: the null-terminated options in 'lst', returning its index or raising an
+// AI: "invalid option" error.
 LUALIB_API int luaL_checkoption (lua_State *L, int arg, const char *def,
                                  const char *const lst[]) {
   const char *name = (def) ? luaL_optstring(L, arg, def) :
@@ -383,6 +428,8 @@ LUALIB_API int luaL_checkoption (lua_State *L, int arg, const char *def,
 ** this extra space, Lua will generate the same 'stack overflow' error,
 ** but without 'msg'.)
 */
+// AI: Ensures at least 'space' extra stack slots are free, raising a
+// AI: "stack overflow" error (suffixed with 'msg' when given) if they are not.
 LUALIB_API void luaL_checkstack (lua_State *L, int space, const char *msg) {
   if (l_unlikely(!lua_checkstack(L, space))) {
     if (msg)
@@ -393,18 +440,22 @@ LUALIB_API void luaL_checkstack (lua_State *L, int space, const char *msg) {
 }
 
 
+// AI: Raises a type error if the value at 'arg' does not have type 't'.
 LUALIB_API void luaL_checktype (lua_State *L, int arg, int t) {
   if (l_unlikely(lua_type(L, arg) != t))
     tag_error(L, arg, t);
 }
 
 
+// AI: Raises "value expected" if there is no value at 'arg' (invalid index).
 LUALIB_API void luaL_checkany (lua_State *L, int arg) {
   if (l_unlikely(lua_type(L, arg) == LUA_TNONE))
     luaL_argerror(L, arg, "value expected");
 }
 
 
+// AI: Returns the string at 'arg' (converting numbers), setting '*len' to its
+// AI: length, or raises a string type error for other values.
 LUALIB_API const char *luaL_checklstring (lua_State *L, int arg, size_t *len) {
   const char *s = lua_tolstring(L, arg, len);
   if (l_unlikely(!s)) tag_error(L, arg, LUA_TSTRING);
@@ -412,6 +463,8 @@ LUALIB_API const char *luaL_checklstring (lua_State *L, int arg, size_t *len) {
 }
 
 
+// AI: Like luaL_checklstring, but returns 'def' (length 0 if NULL) when the
+// AI: argument is absent (none or nil).
 LUALIB_API const char *luaL_optlstring (lua_State *L, int arg,
                                         const char *def, size_t *len) {
   if (lua_isnoneornil(L, arg)) {
@@ -423,6 +476,8 @@ LUALIB_API const char *luaL_optlstring (lua_State *L, int arg,
 }
 
 
+// AI: Returns the value at 'arg' as a number (converting numeric strings) or
+// AI: raises a number type error.
 LUALIB_API lua_Number luaL_checknumber (lua_State *L, int arg) {
   int isnum;
   lua_Number d = lua_tonumberx(L, arg, &isnum);
@@ -432,11 +487,14 @@ LUALIB_API lua_Number luaL_checknumber (lua_State *L, int arg) {
 }
 
 
+// AI: Like luaL_checknumber, but returns 'def' when the argument is absent.
 LUALIB_API lua_Number luaL_optnumber (lua_State *L, int arg, lua_Number def) {
   return luaL_opt(L, luaL_checknumber, arg, def);
 }
 
 
+// AI: Raises an appropriate error when an integer is required: "number has no
+// AI: integer representation" for numeric values, plain type error otherwise.
 static void interror (lua_State *L, int arg) {
   if (lua_isnumber(L, arg))
     luaL_argerror(L, arg, "number has no integer representation");
@@ -445,6 +503,8 @@ static void interror (lua_State *L, int arg) {
 }
 
 
+// AI: Returns the value at 'arg' as an integer (converting numeric strings) or
+// AI: raises an integer-type error via 'interror'.
 LUALIB_API lua_Integer luaL_checkinteger (lua_State *L, int arg) {
   int isnum;
   lua_Integer d = lua_tointegerx(L, arg, &isnum);
@@ -455,6 +515,7 @@ LUALIB_API lua_Integer luaL_checkinteger (lua_State *L, int arg) {
 }
 
 
+// AI: Like luaL_checkinteger, but returns 'def' when the argument is absent.
 LUALIB_API lua_Integer luaL_optinteger (lua_State *L, int arg,
                                                       lua_Integer def) {
   return luaL_opt(L, luaL_checkinteger, arg, def);
@@ -500,6 +561,7 @@ static void *resizebox (lua_State *L, int idx, size_t newsize) {
 }
 
 
+// AI: __gc/__close for buffer boxes: frees the boxed buffer by resizing it to 0.
 static int boxgc (lua_State *L) {
   resizebox(L, 1, 0);
   return 0;
@@ -527,6 +589,8 @@ static void getBoxMT (lua_State *L) {
 }
 
 
+// AI: Pushes a new buffer box: a full userdata holding a UBox, with the shared
+// AI: box metatable (BOXMT) installed.
 static void newbox (lua_State *L) {
   UBox *box = (UBox *)lua_newuserdatauv(L, sizeof(UBox), 0);
   box->box = NULL;
@@ -602,11 +666,13 @@ static char *prepbuffsize (luaL_Buffer *B, size_t sz, int boxidx) {
 /*
 ** returns a pointer to a free area with at least 'sz' bytes
 */
+// AI: Public entry to 'prepbuffsize' with the box/placeholder at the top (-1).
 LUALIB_API char *luaL_prepbuffsize (luaL_Buffer *B, size_t sz) {
   return prepbuffsize(B, sz, -1);
 }
 
 
+// AI: Appends the 'l' bytes of 's' to buffer 'B', growing its storage as needed.
 LUALIB_API void luaL_addlstring (luaL_Buffer *B, const char *s, size_t l) {
   if (l > 0) {  /* avoid 'memcpy' when 's' can be NULL */
     char *b = prepbuffsize(B, l, -1);
@@ -616,11 +682,15 @@ LUALIB_API void luaL_addlstring (luaL_Buffer *B, const char *s, size_t l) {
 }
 
 
+// AI: Appends the null-terminated string 's' to buffer 'B'.
 LUALIB_API void luaL_addstring (luaL_Buffer *B, const char *s) {
   luaL_addlstring(B, s, strlen(s));
 }
 
 
+// AI: Pushes the buffer contents as a string and releases the buffer. When the
+// AI: contents grew beyond the static area, the boxed memory is handed to Lua as
+// AI: an external string (no copy) and the box is closed.
 LUALIB_API void luaL_pushresult (luaL_Buffer *B) {
   lua_State *L = B->L;
   checkbufferlevel(B, -1);
@@ -636,6 +706,9 @@ LUALIB_API void luaL_pushresult (luaL_Buffer *B) {
     s = (char*)box->box;  /* final buffer address */
     s[len] = '\0';  /* add ending zero */
     /* clear box, as Lua will take control of the buffer */
+    // AI: Hand the buffer to Lua: lua_pushexternalstring takes ownership of the
+    // AI: boxed memory (freed by the state's allocator when collected), so the
+    // AI: box is cleared and then closed without double-freeing the memory.
     box->bsize = 0;  box->box = NULL;
     lua_pushexternalstring(L, s, len, allocf, ud);
     lua_closeslot(L, -2);  /* close the box */
@@ -645,6 +718,7 @@ LUALIB_API void luaL_pushresult (luaL_Buffer *B) {
 }
 
 
+// AI: Declares the final length of the buffer ('sz') and pushes it as a string.
 LUALIB_API void luaL_pushresultsize (luaL_Buffer *B, size_t sz) {
   luaL_addsize(B, sz);
   luaL_pushresult(B);
@@ -671,6 +745,8 @@ LUALIB_API void luaL_addvalue (luaL_Buffer *B) {
 }
 
 
+// AI: Initializes buffer 'B' to use its internal static area and pushes a light
+// AI: userdata placeholder (the buffer address) that later becomes a box.
 LUALIB_API void luaL_buffinit (lua_State *L, luaL_Buffer *B) {
   B->L = L;
   B->b = B->init.b;
@@ -680,6 +756,8 @@ LUALIB_API void luaL_buffinit (lua_State *L, luaL_Buffer *B) {
 }
 
 
+// AI: Initializes buffer 'B' and returns a write area of at least 'sz' bytes,
+// AI: creating a box immediately if the static area is too small.
 LUALIB_API char *luaL_buffinitsize (lua_State *L, luaL_Buffer *B, size_t sz) {
   luaL_buffinit(L, B);
   return prepbuffsize(B, sz, -1);
@@ -726,6 +804,8 @@ LUALIB_API int luaL_ref (lua_State *L, int t) {
 }
 
 
+// AI: Releases reference 'ref' in table 't', inserting it at the head of the
+// AI: free list stored at t[1] (negative references are ignored).
 LUALIB_API void luaL_unref (lua_State *L, int t, int ref) {
   if (ref >= 0) {
     t = lua_absindex(L, t);
@@ -746,6 +826,8 @@ LUALIB_API void luaL_unref (lua_State *L, int t, int ref) {
 ** =======================================================
 */
 
+// AI: State for 'getF': the file being loaded plus a buffer that may hold
+// AI: pre-read characters (BOM, '#!' line, first byte) before 'fread' runs.
 typedef struct LoadF {
   unsigned n;  /* number of pre-read characters */
   FILE *f;  /* file being read */
@@ -753,6 +835,8 @@ typedef struct LoadF {
 } LoadF;
 
 
+// AI: lua_Reader for files: hands out the pre-read characters first, then reads
+// AI: one buffer-sized block per call. Returns NULL at EOF to end the chunk.
 static const char *getF (lua_State *L, void *ud, size_t *size) {
   LoadF *lf = (LoadF *)ud;
   UNUSED(L);
@@ -771,6 +855,8 @@ static const char *getF (lua_State *L, void *ud, size_t *size) {
 }
 
 
+// AI: Pushes a "cannot what <file>: <errno>" message (removing the chunk name
+// AI: from the stack) and returns LUA_ERRFILE for the caller.
 static int errfile (lua_State *L, const char *what, int fnameindex) {
   int err = errno;
   const char *filename = lua_tostring(L, fnameindex) + 1;
@@ -818,6 +904,9 @@ static int skipcomment (FILE *f, int *cp) {
 }
 
 
+// AI: Loads a chunk from 'filename' (or stdin when NULL) and pushes the compiled
+// AI: function. Handles the BOM and a leading '#!' comment line, reopening real
+// AI: binary files in binary mode; returns LUA_OK or an LUA_ERR* / LUA_ERRFILE.
 LUALIB_API int luaL_loadfilex (lua_State *L, const char *filename,
                                              const char *mode) {
   LoadF lf;
@@ -839,6 +928,8 @@ LUALIB_API int luaL_loadfilex (lua_State *L, const char *filename,
     lf.buff[lf.n++] = '\n';  /* add newline to correct line numbers */
   if (c == LUA_SIGNATURE[0]) {  /* binary file? */
     lf.n = 0;  /* remove possible newline */
+    // AI: For real files, reopen in binary mode so fread is not affected by CRLF
+    // AI: translation, then re-scan the initial BOM/#! portion.
     if (filename) {  /* "real" file? */
       errno = 0;
       lf.f = freopen(filename, "rb", lf.f);  /* reopen in binary mode */
@@ -867,6 +958,8 @@ typedef struct LoadS {
 } LoadS;
 
 
+// AI: lua_Reader for memory buffers: returns the whole buffer in one call, then
+// AI: NULL to signal the end of the chunk.
 static const char *getS (lua_State *L, void *ud, size_t *size) {
   LoadS *ls = (LoadS *)ud;
   UNUSED(L);
@@ -877,6 +970,8 @@ static const char *getS (lua_State *L, void *ud, size_t *size) {
 }
 
 
+// AI: Loads a chunk from the 'size' bytes in 'buff' (named 'name'), pushing the
+// AI: resulting function or returning an error status.
 LUALIB_API int luaL_loadbufferx (lua_State *L, const char *buff, size_t size,
                                  const char *name, const char *mode) {
   LoadS ls;
@@ -886,6 +981,8 @@ LUALIB_API int luaL_loadbufferx (lua_State *L, const char *buff, size_t size,
 }
 
 
+// AI: Loads the null-terminated string 's' as a text chunk (mode "t"), pushing
+// AI: the compiled function on success.
 LUALIB_API int luaL_loadstring (lua_State *L, const char *s) {
   return luaL_loadbufferx(L, s, strlen(s), s, "t");
 }
@@ -894,6 +991,9 @@ LUALIB_API int luaL_loadstring (lua_State *L, const char *s) {
 
 
 
+// AI: Pushes the metafield 'event' of the value at 'obj' (a metamethod),
+// AI: popping the metatable; returns the field's type or LUA_TNIL with nothing
+// AI: pushed when there is no metatable or the field is nil.
 LUALIB_API int luaL_getmetafield (lua_State *L, int obj, const char *event) {
   if (!lua_getmetatable(L, obj))  /* no metatable? */
     return LUA_TNIL;
@@ -910,6 +1010,8 @@ LUALIB_API int luaL_getmetafield (lua_State *L, int obj, const char *event) {
 }
 
 
+// AI: Calls the 'event' metamethod of the value at 'obj' with 'obj' as argument,
+// AI: leaving the single result on the stack; returns 0 if no metafield exists.
 LUALIB_API int luaL_callmeta (lua_State *L, int obj, const char *event) {
   obj = lua_absindex(L, obj);
   if (luaL_getmetafield(L, obj, event) == LUA_TNIL)  /* no metafield? */
@@ -920,6 +1022,8 @@ LUALIB_API int luaL_callmeta (lua_State *L, int obj, const char *event) {
 }
 
 
+// AI: Returns the integer length of the value at 'idx' (via __len, like the '#'
+// AI: operator), raising an error if the length is not an integer.
 LUALIB_API lua_Integer luaL_len (lua_State *L, int idx) {
   lua_Integer l;
   int isnum;
@@ -932,6 +1036,9 @@ LUALIB_API lua_Integer luaL_len (lua_State *L, int idx) {
 }
 
 
+// AI: Pushes a readable string for the value at 'idx' (via __tostring, or a
+// AI: built-in form for numbers/booleans/nil, "type: 0xaddr" otherwise) and
+// AI: returns it, setting '*len' to the string length.
 LUALIB_API const char *luaL_tolstring (lua_State *L, int idx, size_t *len) {
   idx = lua_absindex(L,idx);
   if (luaL_callmeta(L, idx, "__tostring")) {  /* metafield? */
@@ -1036,6 +1143,8 @@ LUALIB_API void luaL_requiref (lua_State *L, const char *modname,
 }
 
 
+// AI: Appends 's' to buffer 'b', replacing every occurrence of pattern 'p' with
+// AI: replacement 'r' (literal substitution, no pattern semantics).
 LUALIB_API void luaL_addgsub (luaL_Buffer *b, const char *s,
                                      const char *p, const char *r) {
   const char *wild;
@@ -1049,6 +1158,8 @@ LUALIB_API void luaL_addgsub (luaL_Buffer *b, const char *s,
 }
 
 
+// AI: Returns a new string with every occurrence of 'p' in 's' replaced by 'r'
+// AI: (literal replacement), leaving the result on the stack.
 LUALIB_API const char *luaL_gsub (lua_State *L, const char *s,
                                   const char *p, const char *r) {
   luaL_Buffer b;
@@ -1059,6 +1170,8 @@ LUALIB_API const char *luaL_gsub (lua_State *L, const char *s,
 }
 
 
+// AI: Default lua_Alloc: thin wrapper over realloc (free when 'nsize' is 0),
+// AI: ignoring 'ud' and 'osize'.
 void *luaL_alloc (void *ud, void *ptr, size_t osize, size_t nsize) {
   UNUSED(ud); UNUSED(osize);
   if (nsize == 0) {
@@ -1112,6 +1225,8 @@ static int checkcontrol (lua_State *L, const char *message, int tocont) {
 }
 
 
+// AI: Warning function used while the warning system is off: only reacts to
+// AI: control messages ("@off"/"@on"), discarding everything else.
 static void warnfoff (void *ud, const char *message, int tocont) {
   checkcontrol((lua_State *)ud, message, tocont);
 }
@@ -1133,6 +1248,8 @@ static void warnfcont (void *ud, const char *message, int tocont) {
 }
 
 
+// AI: Warning function for a new message: handles control messages, otherwise
+// AI: prefixes "Lua warning: " and delegates to 'warnfcont'.
 static void warnfon (void *ud, const char *message, int tocont) {
   if (checkcontrol((lua_State *)ud, message, tocont))  /* control message? */
     return;  /* nothing else to be done */
@@ -1184,6 +1301,8 @@ static unsigned int luai_makeseed (void) {
 #endif
 
 
+// AI: Returns a per-run seed for the pseudo-random generator, derived from the
+// AI: stack address (ASLR) and the current time.
 LUALIB_API unsigned int luaL_makeseed (lua_State *L) {
   UNUSED(L);
   return luai_makeseed();
@@ -1194,6 +1313,8 @@ LUALIB_API unsigned int luaL_makeseed (lua_State *L) {
 ** Use the name with parentheses so that headers can redefine it
 ** as a macro.
 */
+// AI: Creates a new state with the default allocator and panic/warning handlers;
+// AI: returns NULL if memory for the state cannot be allocated.
 LUALIB_API lua_State *(luaL_newstate) (void) {
   lua_State *L = lua_newstate(luaL_alloc, NULL, luaL_makeseed(NULL));
   if (l_likely(L)) {
@@ -1204,6 +1325,9 @@ LUALIB_API lua_State *(luaL_newstate) (void) {
 }
 
 
+// AI: Verifies the library was built against the same Lua core: matching numeric
+// AI: type sizes and version number, raising an error otherwise. Called via the
+// AI: luaL_checkversion macro at library-load time.
 LUALIB_API void luaL_checkversion_ (lua_State *L, lua_Number ver, size_t sz) {
   lua_Number v = lua_version(L);
   if (sz != LUAL_NUMSIZES)  /* check numeric types */

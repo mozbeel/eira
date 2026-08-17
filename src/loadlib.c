@@ -101,11 +101,14 @@ static lua_CFunction lsys_sym (lua_State *L, void *lib, const char *sym);
 #include <dlfcn.h>
 
 
+// AI: dlfcn implementation: unloads a C library with dlclose.
 static void lsys_unloadlib (void *lib) {
   dlclose(lib);
 }
 
 
+// AI: dlfcn implementation: dlopen with RTLD_NOW, exporting the library's
+// AI: symbols globally only when 'seeglb' is set; pushes dlerror on failure.
 static void *lsys_load (lua_State *L, const char *path, int seeglb) {
   void *lib = dlopen(path, RTLD_NOW | (seeglb ? RTLD_GLOBAL : RTLD_LOCAL));
   if (l_unlikely(lib == NULL))
@@ -114,6 +117,8 @@ static void *lsys_load (lua_State *L, const char *path, int seeglb) {
 }
 
 
+// AI: dlfcn implementation: resolves symbol 'sym' via dlsym; pushes
+// AI: dlerror if it cannot be found.
 static lua_CFunction lsys_sym (lua_State *L, void *lib, const char *sym) {
   lua_CFunction f = cast_Lfunc(dlsym(lib, sym));
   if (l_unlikely(f == NULL))
@@ -150,6 +155,8 @@ static lua_CFunction lsys_sym (lua_State *L, void *lib, const char *sym) {
 ** Replace in the path (on the top of the stack) any occurrence
 ** of LUA_EXEC_DIR with the executable's path.
 */
+// AI: Replaces every occurrence of LUA_EXEC_DIR in the path on top of the
+// AI: stack with the directory of the running executable.
 static void setprogdir (lua_State *L) {
   char buff[MAX_PATH + 1];
   char *lb;
@@ -167,6 +174,7 @@ static void setprogdir (lua_State *L) {
 
 
 
+// AI: Pushes the Windows error text for the last failed system call.
 static void pusherror (lua_State *L) {
   int error = GetLastError();
   char buffer[128];
@@ -177,11 +185,14 @@ static void pusherror (lua_State *L) {
     lua_pushfstring(L, "system error %d\n", error);
 }
 
+// AI: Windows implementation: FreeLibrary to unload a DLL.
 static void lsys_unloadlib (void *lib) {
   FreeLibrary((HMODULE)lib);
 }
 
 
+// AI: Windows implementation: LoadLibraryExA; symbols are global by default
+// AI: on Windows, so 'seeglb' is ignored.
 static void *lsys_load (lua_State *L, const char *path, int seeglb) {
   HMODULE lib = LoadLibraryExA(path, NULL, LUA_LLE_FLAGS);
   (void)(seeglb);  /* not used: symbols are 'global' by default */
@@ -190,6 +201,7 @@ static void *lsys_load (lua_State *L, const char *path, int seeglb) {
 }
 
 
+// AI: Windows implementation: GetProcAddress to resolve an exported function.
 static lua_CFunction lsys_sym (lua_State *L, void *lib, const char *sym) {
   lua_CFunction f = cast_Lfunc(GetProcAddress((HMODULE)lib, sym));
   if (f == NULL) pusherror(L);
@@ -213,11 +225,13 @@ static lua_CFunction lsys_sym (lua_State *L, void *lib, const char *sym) {
 #define DLMSG	"dynamic libraries not enabled; check your Lua installation"
 
 
+// AI: Stub for systems without dynamic loading: nothing to unload.
 static void lsys_unloadlib (void *lib) {
   (void)(lib);  /* not used */
 }
 
 
+// AI: Stub for systems without dynamic loading: always reports failure.
 static void *lsys_load (lua_State *L, const char *path, int seeglb) {
   (void)(path); (void)(seeglb);  /* not used */
   lua_pushliteral(L, DLMSG);
@@ -225,6 +239,7 @@ static void *lsys_load (lua_State *L, const char *path, int seeglb) {
 }
 
 
+// AI: Stub for systems without dynamic loading: always reports failure.
 static lua_CFunction lsys_sym (lua_State *L, void *lib, const char *sym) {
   (void)(lib); (void)(sym);  /* not used */
   lua_pushliteral(L, DLMSG);
@@ -258,6 +273,8 @@ static lua_CFunction lsys_sym (lua_State *L, void *lib, const char *sym) {
 /*
 ** return registry.LUA_NOENV as a boolean
 */
+// AI: Reads registry.LUA_NOENV to decide whether to ignore environment
+// AI: variables (used to force the default paths).
 static int noenv (lua_State *L) {
   int b;
   lua_getfield(L, LUA_REGISTRYINDEX, "LUA_NOENV");
@@ -271,6 +288,9 @@ static int noenv (lua_State *L) {
 ** Set a path. (If using the default path, assume it is a string
 ** literal in C and create it as an external string.)
 */
+// AI: Sets package.path/package.cpath: tries the versioned env var, then the
+// AI: plain one, falling back to the compiled-in default; a ';;' in the env
+// AI: value is replaced by the default path, and LUA_EXEC_DIR is expanded.
 static void setpath (lua_State *L, const char *fieldname,
                                    const char *envname,
                                    const char *dft) {
@@ -319,6 +339,8 @@ static void setpath (lua_State *L, const char *fieldname,
 /*
 ** return registry.CLIBS[path]
 */
+// AI: Looks up 'path' in registry._CLIBS to return a handle for an already
+// AI: loaded library (NULL when it is not loaded yet).
 static void *checkclib (lua_State *L, const char *path) {
   void *plib;
   lua_getfield(L, LUA_REGISTRYINDEX, CLIBS);
@@ -333,6 +355,8 @@ static void *checkclib (lua_State *L, const char *path) {
 ** Deallocate function for library strings.
 ** Unload the DLL associated with the string being deallocated.
 */
+// AI: Deallocation callback for library strings: unloads the DLL the string
+// AI: stands for once no other Lua data references it.
 static void *freelib (void *ud, void *ptr, size_t osize, size_t nsize) {
   /* string itself is irrelevant and static */
   (void)ptr; (void)osize; (void)nsize;
@@ -344,6 +368,8 @@ static void *freelib (void *ud, void *ptr, size_t osize, size_t nsize) {
 /*
 ** Create a library string that, when deallocated, will unload 'plib'
 */
+// AI: Creates an external string that unloads 'plib' when garbage-collected,
+// AI: keeping a DLL alive while any of its strings are still in use.
 static void createlibstr (lua_State *L, void *plib) {
   /* common content for all library strings */
   static const char dummy[] = "01234567890";
@@ -356,6 +382,8 @@ static void createlibstr (lua_State *L, void *plib) {
 ** Also create a reference to strlib, so that the library string will
 ** only be collected when registry.CLIBS is collected.
 */
+// AI: Records a newly loaded library in registry._CLIBS and keeps the
+// AI: reference to its unload-string there, so both live as long as needed.
 static void addtoclib (lua_State *L, const char *path, void *plib) {
   lua_getfield(L, LUA_REGISTRYINDEX, CLIBS);
   lua_pushlightuserdata(L, plib);
@@ -381,6 +409,9 @@ static void addtoclib (lua_State *L, const char *path, void *plib) {
 ** Return 0 with 'true' or a function in the stack; in case of
 ** errors, return an error code with an error message in the stack.
 */
+// AI: Loads 'path' (or reuses the cached handle) and looks up C symbol
+// AI: 'sym'; a 'sym' of '*' means load-only. Returns 0 with the result on the
+// AI: stack, or ERRLIB/ERRFUNC with an error message.
 static int lookforfunc (lua_State *L, const char *path, const char *sym) {
   void *reg = checkclib(L, path);  /* check loaded C libraries */
   if (reg == NULL) {  /* must load library? */
@@ -402,6 +433,8 @@ static int lookforfunc (lua_State *L, const char *path, const char *sym) {
 }
 
 
+// AI: Implements package.loadlib(path, init): returns the loaded C function,
+// AI: or fail + error message + reason ("open" or "init").
 static int ll_loadlib (lua_State *L) {
   const char *path = luaL_checkstring(L, 1);
   const char *init = luaL_checkstring(L, 2);
@@ -425,6 +458,7 @@ static int ll_loadlib (lua_State *L) {
 */
 
 
+// AI: Tests whether 'filename' exists and can be opened for reading.
 static int readable (const char *filename) {
   FILE *f = fopen(filename, "r");  /* try to open file */
   if (f == NULL) return 0;  /* open failed */
@@ -438,6 +472,9 @@ static int readable (const char *filename) {
 ** the ending ';' to '\0' to create a zero-terminated string. Return
 ** NULL when list ends.
 */
+// AI: Splits the ';'-separated path list in place, returning each file name
+// AI: in turn by overwriting the separators with '\0'; NULL when the list is
+// AI: exhausted.
 static const char *getnextfilename (char **path, char *end) {
   char *sep;
   char *name = *path;
@@ -462,6 +499,8 @@ static const char *getnextfilename (char **path, char *end) {
 ** no file 'blabla.so'
 **	no file 'blublu.so'
 */
+// AI: Builds the standard "no file '...'" error listing every entry of the
+// AI: searched path.
 static void pusherrornotfound (lua_State *L, const char *path) {
   luaL_Buffer b;
   luaL_buffinit(L, &b);
@@ -472,6 +511,9 @@ static void pusherrornotfound (lua_State *L, const char *path) {
 }
 
 
+// AI: Substitutes the module name for every '?' mark in 'path' and returns
+// AI: the first file that exists and is readable; otherwise pushes a "no file"
+// AI: message and returns NULL. Dot separators in the name become 'dirsep'.
 static const char *searchpath (lua_State *L, const char *name,
                                              const char *path,
                                              const char *sep,
@@ -499,6 +541,7 @@ static const char *searchpath (lua_State *L, const char *name,
 }
 
 
+// AI: Implements package.searchpath(name, path [, sep [, rep]]).
 static int ll_searchpath (lua_State *L) {
   const char *f = searchpath(L, luaL_checkstring(L, 1),
                                 luaL_checkstring(L, 2),
@@ -513,6 +556,8 @@ static int ll_searchpath (lua_State *L) {
 }
 
 
+// AI: Reads package.path or package.cpath from the closure upvalue and runs
+// AI: searchpath with '.' as the name separator.
 static const char *findfile (lua_State *L, const char *name,
                                            const char *pname,
                                            const char *dirsep) {
@@ -525,6 +570,8 @@ static const char *findfile (lua_State *L, const char *name,
 }
 
 
+// AI: Converts a loader result into (open function, filename), or raises an
+// AI: error including the searcher's message.
 static int checkload (lua_State *L, int stat, const char *filename) {
   if (l_likely(stat)) {  /* module loaded successfully? */
     lua_pushstring(L, filename);  /* will be 2nd argument to module */
@@ -536,6 +583,8 @@ static int checkload (lua_State *L, int stat, const char *filename) {
 }
 
 
+// AI: Searcher #2 (Lua modules): finds 'name' on package.path and returns a
+// AI: compiled chunk loader plus the file name.
 static int searcher_Lua (lua_State *L) {
   const char *filename;
   const char *name = luaL_checkstring(L, 1);
@@ -553,6 +602,8 @@ static int searcher_Lua (lua_State *L) {
 ** fails, it also tries "luaopen_Y".) If there is no ignore mark,
 ** look for a function named "luaopen_modname".
 */
+// AI: Finds the C open function for a module: '.' becomes '_', and an ignore
+// AI: mark (name of the form X-Y) first tries luaopen_X, then luaopen_Y.
 static int loadfunc (lua_State *L, const char *filename, const char *modname) {
   const char *openfunc;
   const char *mark;
@@ -571,6 +622,8 @@ static int loadfunc (lua_State *L, const char *filename, const char *modname) {
 }
 
 
+// AI: Searcher #3 (C modules): finds a C library on package.cpath and
+// AI: resolves its luaopen_* function inside it.
 static int searcher_C (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   const char *filename = findfile(L, name, "cpath", LUA_CSUBSEP);
@@ -579,6 +632,8 @@ static int searcher_C (lua_State *L) {
 }
 
 
+// AI: Searcher #4 (C roots): for 'a.b', loads the root library 'a' from
+// AI: package.cpath first, then resolves luaopen_a_b inside that same library.
 static int searcher_Croot (lua_State *L) {
   const char *filename;
   const char *name = luaL_checkstring(L, 1);
@@ -601,6 +656,8 @@ static int searcher_Croot (lua_State *L) {
 }
 
 
+// AI: Searcher #1 (preload): returns the loader stored in
+// AI: package.preload[name], or an error message when absent.
 static int searcher_preload (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   lua_getfield(L, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE);
@@ -615,6 +672,9 @@ static int searcher_preload (lua_State *L) {
 }
 
 
+// AI: Runs each package.searchers[i] with the module name until one returns a
+// AI: loader, concatenating every searcher's error message; raises if none
+// AI: succeeds.
 static void findloader (lua_State *L, const char *name) {
   int i;
   luaL_Buffer msg;  /* to build error message */
@@ -647,6 +707,9 @@ static void findloader (lua_State *L, const char *name) {
 }
 
 
+// AI: Implements require: consults registry._LOADED, runs the loader found by
+// AI: 'findloader', caches the module value (or true when it returns nil) in
+// AI: _LOADED, and returns the module plus its loader data.
 static int ll_require (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   lua_settop(L, 1);  /* LOADED table will be at index 2 */
@@ -700,6 +763,8 @@ static const luaL_Reg ll_funcs[] = {
 };
 
 
+// AI: Builds package.searchers with the four predefined searchers, each a
+// AI: closure over the package table (so they read path/cpath/searchers).
 static void createsearcherstable (lua_State *L) {
   static const lua_CFunction searchers[] = {
     searcher_preload,
@@ -721,6 +786,9 @@ static void createsearcherstable (lua_State *L) {
 }
 
 
+// AI: Opens the package library: creates the registry tables (_CLIBS,
+// AI: _LOADED, _PRELOAD), sets path/cpath and config, and installs a global
+// AI: 'require' closure over the package table.
 LUAMOD_API int luaopen_package (lua_State *L) {
   luaL_getsubtable(L, LUA_REGISTRYINDEX, CLIBS);  /* create CLIBS table */
   lua_pop(L, 1);  /* will not use it now */

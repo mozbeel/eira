@@ -40,18 +40,21 @@ static const char* output=Output;	/* actual output file name */
 static const char* progname=PROGNAME;	/* actual program name */
 static TString **tmname;
 
+// AI: Prints "progname: message" to stderr and exits with failure status.
 static void fatal(const char* message)
 {
  fprintf(stderr,"%s: %s\n",progname,message);
  exit(EXIT_FAILURE);
 }
 
+// AI: Reports an OS error ('strerror(errno)') for the current output file and exits.
 static void cannot(const char* what)
 {
  fprintf(stderr,"%s: cannot %s %s: %s\n",progname,what,output,strerror(errno));
  exit(EXIT_FAILURE);
 }
 
+// AI: Prints an option/usage error and the full options list, then exits with failure.
 static void usage(const char* message)
 {
  if (*message=='-')
@@ -74,6 +77,7 @@ static void usage(const char* message)
 
 #define IS(s)	(strcmp(argv[i],s)==0)
 
+// AI: Parses luac options, mutating globals (listing/dumping/output); returns the index of the first file name.
 static int doargs(int argc, char* argv[])
 {
  int i;
@@ -111,19 +115,23 @@ static int doargs(int argc, char* argv[])
  }
  if (i==argc && (listing || !dumping))
  {
+  // AI: No file names: listing/parse-only reads the default 'luac.out' instead of compiling anything.
   dumping=0;
   argv[--i]=Output;
  }
  if (version)
  {
+  // AI: -v alone (no other arguments) just prints the version and exits successfully.
   printf("%s\n",LUA_COPYRIGHT);
   if (version==argc-1) exit(EXIT_SUCCESS);
  }
  return i;
 }
 
+// AI: Synthetic chunk whose nested prototypes receive each compiled input file (n>1) via 'combine'.
 #define FUNCTION "(function()end)();\n"
 
+// AI: Lua reader used by 'combine': yields the source string once, then end of stream.
 static const char* reader(lua_State* L, void* ud, size_t* size)
 {
  UNUSED(L);
@@ -139,8 +147,10 @@ static const char* reader(lua_State* L, void* ud, size_t* size)
  }
 }
 
+// AI: Convenience: returns the Proto at stack slot 'i' relative to the top.
 #define toproto(L,i) getproto(s2v(L->top.p+(i)))
 
+// AI: Bundles the 'n' loaded prototypes as nested functions of a dummy '(function()end)();' chunk.
 static const Proto* combine(lua_State* L, int n)
 {
  if (n==1)
@@ -160,12 +170,14 @@ static const Proto* combine(lua_State* L, int n)
  }
 }
 
+// AI: lua_Writer callback: appends a block to the FILE* given as userdata; nonzero return signals a write error.
 static int writer(lua_State* L, const void* p, size_t size, void* u)
 {
  UNUSED(L);
  return (fwrite(p,size,1,(FILE*)u)!=1) && (size!=0);
 }
 
+// AI: Protected-mode body: loads every input file, combines the prototypes, then lists and/or dumps the bytecode.
 static int pmain(lua_State* L)
 {
  int argc=(int)lua_tointeger(L,1);
@@ -194,6 +206,7 @@ static int pmain(lua_State* L)
  return 0;
 }
 
+// AI: Sets up a new state, runs pmain in protected mode, and fails with the error message on any problem.
 int main(int argc, char* argv[])
 {
  lua_State* L;
@@ -218,6 +231,7 @@ int main(int argc, char* argv[])
 #define VOID(p) ((const void*)(p))
 #define eventname(i) (getstr(tmname[i]))
 
+// AI: Prints a TString with C-style escapes; non-printable bytes become backslash-decimal.
 static void PrintString(const TString* ts)
 {
  const char* s=getstr(ts);
@@ -263,6 +277,7 @@ static void PrintString(const TString* ts)
  printf("\"");
 }
 
+// AI: Prints the one-letter type tag (N/B/F/I/S) of constant 'i' followed by a tab.
 static void PrintType(const Proto* f, int i)
 {
  const TValue* o=&f->k[i];
@@ -292,6 +307,7 @@ static void PrintType(const Proto* f, int i)
  printf("\t");
 }
 
+// AI: Prints the constant value at index 'i' (with a trailing ".0" so floats are unambiguous).
 static void PrintConstant(const Proto* f, int i)
 {
  const TValue* o=&f->k[i];
@@ -332,6 +348,7 @@ static void PrintConstant(const Proto* f, int i)
 #define EXTRAARGC	(EXTRAARG*(MAXARG_C+1))
 #define ISK		(isk ? "k" : "")
 
+// AI: Disassembles every instruction: pc, source line, opcode name, decoded operands, and per-op constants/names.
 static void PrintCode(const Proto* f)
 {
  const Instruction* code=f->code;
@@ -675,6 +692,7 @@ static void PrintCode(const Proto* f)
 #define SS(x)	((x==1)?"":"s")
 #define S(x)	(int)(x),SS(x)
 
+// AI: Prints the function header (name, lines, sizes) like the classic "main <file:l1,l2> (...)" banner.
 static void PrintHeader(const Proto* f)
 {
  const char* s=f->source ? getstr(f->source) : "=?";
@@ -695,6 +713,7 @@ static void PrintHeader(const Proto* f)
 	S(f->sizelocvars),S(f->sizek),S(f->sizep));
 }
 
+// AI: Prints constants, locals, and upvalues of a prototype (the '-l -l' full listing).
 static void PrintDebug(const Proto* f)
 {
  int i,n;
@@ -723,6 +742,7 @@ static void PrintDebug(const Proto* f)
  }
 }
 
+// AI: Recursively prints a prototype (header + code + optional debug), then all nested prototypes.
 static void PrintFunction(const Proto* f, int full)
 {
  int i,n=f->sizep;

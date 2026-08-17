@@ -140,6 +140,9 @@
 #endif
 
 
+// AI: Implements os.execute([cmd]): runs the shell command and returns the
+// AI: exit status (or a fail/exitcode/signal triple via luaL_execresult);
+// AI: with no arguments it reports whether a shell is available.
 static int os_execute (lua_State *L) {
   const char *cmd = luaL_optstring(L, 1, NULL);
   int stat;
@@ -154,6 +157,8 @@ static int os_execute (lua_State *L) {
 }
 
 
+// AI: Implements os.remove(filename): deletes a file, returning true or
+// AI: nil + error message.
 static int os_remove (lua_State *L) {
   const char *filename = luaL_checkstring(L, 1);
   errno = 0;
@@ -161,6 +166,8 @@ static int os_remove (lua_State *L) {
 }
 
 
+// AI: Implements os.rename(from, to): renames a file, returning true or
+// AI: nil + error message.
 static int os_rename (lua_State *L) {
   const char *fromname = luaL_checkstring(L, 1);
   const char *toname = luaL_checkstring(L, 2);
@@ -169,6 +176,8 @@ static int os_rename (lua_State *L) {
 }
 
 
+// AI: Implements os.tmpname(): returns a unique temporary file name, using
+// AI: mkstemp on POSIX and tmpnam otherwise.
 static int os_tmpname (lua_State *L) {
   char buff[LUA_TMPNAMBUFSIZE];
   int err;
@@ -180,12 +189,15 @@ static int os_tmpname (lua_State *L) {
 }
 
 
+// AI: Implements os.getenv(name): pushes the environment variable value, or
+// AI: nil when it is not set.
 static int os_getenv (lua_State *L) {
   lua_pushstring(L, getenv(luaL_checkstring(L, 1)));  /* if NULL push nil */
   return 1;
 }
 
 
+// AI: Implements os.clock(): CPU time in seconds since the program started.
 static int os_clock (lua_State *L) {
   lua_pushnumber(L, ((lua_Number)clock())/(lua_Number)CLOCKS_PER_SEC);
   return 1;
@@ -209,6 +221,9 @@ static int os_clock (lua_State *L) {
 ** time 0x1.e1853b0d184f6p+55 would cause an overflow when adding 1900
 ** to compute the year.
 */
+// AI: Helper: writes a date-table field as 'value + delta' (e.g. tm_year
+// AI: stored as year = tm_year + 1900), with an overflow check when times are
+// AI: Lua numbers but integers are 32-bit.
 static void setfield (lua_State *L, const char *key, int value, int delta) {
   #if (defined(LUA_NUMTIME) && LUA_MAXINTEGER <= INT_MAX)
     if (l_unlikely(value > LUA_MAXINTEGER - delta))
@@ -219,6 +234,8 @@ static void setfield (lua_State *L, const char *key, int value, int delta) {
 }
 
 
+// AI: Helper: writes a boolean field, leaving it out when the C value is
+// AI: undefined (negative, e.g. tm_isdst).
 static void setboolfield (lua_State *L, const char *key, int value) {
   if (value < 0)  /* undefined? */
     return;  /* does not set field */
@@ -230,6 +247,8 @@ static void setboolfield (lua_State *L, const char *key, int value) {
 /*
 ** Set all fields from structure 'tm' in the table on top of the stack
 */
+// AI: Helper: writes every struct tm field into the date table on top of the
+// AI: stack (used by both os.date and the normalization in os.time).
 static void setallfields (lua_State *L, struct tm *stm) {
   setfield(L, "year", stm->tm_year, 1900);
   setfield(L, "month", stm->tm_mon, 1);
@@ -243,6 +262,8 @@ static void setallfields (lua_State *L, struct tm *stm) {
 }
 
 
+// AI: Helper: reads a boolean field from the table, returning -1 when the
+// AI: field is nil (undefined).
 static int getboolfield (lua_State *L, const char *key) {
   int res;
   res = (lua_getfield(L, -1, key) == LUA_TNIL) ? -1 : lua_toboolean(L, -1);
@@ -251,6 +272,9 @@ static int getboolfield (lua_State *L, const char *key) {
 }
 
 
+// AI: Helper: reads an integer date-table field, applying 'delta' (the
+// AI: inverse of setfield), using a default when absent and raising on
+// AI: non-integer or out-of-range values.
 static int getfield (lua_State *L, const char *key, int d, int delta) {
   int isnum;
   int t = lua_getfield(L, -1, key);  /* get field and its type */
@@ -272,6 +296,9 @@ static int getfield (lua_State *L, const char *key, int d, int delta) {
 }
 
 
+// AI: Validates a strftime conversion specifier against
+// AI: LUA_STRFTIMEOPTIONS (single- and double-char forms) and copies it into
+// AI: 'buff'; returns a pointer to what follows it.
 static const char *checkoption (lua_State *L, const char *conv,
                                 size_t convlen, char *buff) {
   const char *option = LUA_STRFTIMEOPTIONS;
@@ -291,6 +318,8 @@ static const char *checkoption (lua_State *L, const char *conv,
 }
 
 
+// AI: Reads a time argument (integer or float per LUA_NUMTIME), rejecting
+// AI: values that do not fit into time_t.
 static time_t l_checktime (lua_State *L, int arg) {
   l_timet t = l_gettime(L, arg);
   luaL_argcheck(L, (time_t)t == t, arg, "time out-of-bounds");
@@ -302,6 +331,9 @@ static time_t l_checktime (lua_State *L, int arg) {
 #define SIZETIMEFMT	250
 
 
+// AI: Implements os.date([format [, time]]): '*' returns a table of broken
+// AI: down fields, '!' forces UTC, and any other format is expanded through
+// AI: strftime, applying each validated conversion specifier separately.
 static int os_date (lua_State *L) {
   size_t slen;
   const char *s = luaL_optlstring(L, 1, "%c", &slen);
@@ -345,6 +377,9 @@ static int os_date (lua_State *L) {
 }
 
 
+// AI: Implements os.time([table]): with a date table builds a time_t via
+// AI: mktime (which normalizes the fields, written back via setallfields);
+// AI: without arguments returns the current time.
 static int os_time (lua_State *L) {
   time_t t;
   if (lua_isnoneornil(L, 1))  /* called without args? */
@@ -371,6 +406,7 @@ static int os_time (lua_State *L) {
 }
 
 
+// AI: Implements os.difftime(t2, t1): seconds between two times, as a float.
 static int os_difftime (lua_State *L) {
   time_t t1 = l_checktime(L, 1);
   time_t t2 = l_checktime(L, 2);
@@ -381,6 +417,8 @@ static int os_difftime (lua_State *L) {
 /* }====================================================== */
 
 
+// AI: Implements os.setlocale(locale [, category]): sets the process locale
+// AI: and returns the resulting locale string (nil on failure).
 static int os_setlocale (lua_State *L) {
   static const int cat[] = {LC_ALL, LC_COLLATE, LC_CTYPE, LC_MONETARY,
                       LC_NUMERIC, LC_TIME};
@@ -393,6 +431,9 @@ static int os_setlocale (lua_State *L) {
 }
 
 
+// AI: Implements os.exit([code [, close]]): terminates the process (a
+// AI: boolean code maps to success/failure), closing the Lua state first when
+// AI: the second argument is true.
 static int os_exit (lua_State *L) {
   int status;
   if (lua_isboolean(L, 1))
@@ -425,6 +466,7 @@ static const luaL_Reg syslib[] = {
 
 
 
+// AI: Opens the os library.
 LUAMOD_API int luaopen_os (lua_State *L) {
   luaL_newlib(L, syslib);
   return 1;

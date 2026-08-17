@@ -58,6 +58,8 @@
 ** objects (GCtotalobjs - GCdebt) invariant and avoiding overflows in
 ** 'GCtotalobjs'.
 */
+// AI: Sets GCdebt, clamping so GCtotalbytes (= real allocated bytes + debt)
+// AI: never exceeds MAX_LMEM.
 void luaE_setdebt (global_State *g, l_mem debt) {
   l_mem tb = gettotalbytes(g);
   lua_assert(tb > 0);
@@ -68,6 +70,8 @@ void luaE_setdebt (global_State *g, l_mem debt) {
 }
 
 
+// AI: Allocates a CallInfo and splices it into the doubly linked 'ci' list
+// AI: right after L->ci; if 'err' is set an allocation failure raises.
 CallInfo *luaE_extendCI (lua_State *L, int err) {
   CallInfo *ci;
   ci = luaM_reallocvector(L, NULL, 0, 1, CallInfo);
@@ -90,6 +94,7 @@ CallInfo *luaE_extendCI (lua_State *L, int err) {
 /*
 ** free all CallInfo structures not in use by a thread
 */
+// AI: Frees every CallInfo after L->ci, keeping only the active one.
 static void freeCI (lua_State *L) {
   CallInfo *ci = L->ci;
   CallInfo *next = ci->next;
@@ -106,6 +111,8 @@ static void freeCI (lua_State *L) {
 ** free half of the CallInfo structures not in use by a thread,
 ** keeping the first one.
 */
+// AI: Frees half of the free CallInfos (keeping the first) so long call
+// AI: chains shrink geometrically instead of all at once.
 void luaE_shrinkCI (lua_State *L) {
   CallInfo *ci = L->ci->next;  /* first free CallInfo */
   CallInfo *next;
@@ -133,6 +140,9 @@ void luaE_shrinkCI (lua_State *L) {
 ** not much larger, does not report an error (to allow overflow
 ** handling to work).
 */
+// AI: Guards against runaway C recursion: exactly LUAI_MAXCCALLS raises a
+// AI: stack-overflow error; a deeper count (already handling one) reports an
+// AI: "error in error handling".
 void luaE_checkcstack (lua_State *L) {
   if (getCcalls(L) == LUAI_MAXCCALLS)
     luaG_runerror(L, "C stack overflow");
@@ -141,6 +151,7 @@ void luaE_checkcstack (lua_State *L) {
 }
 
 
+// AI: Records one more C call and checks the recursion limit as it grows.
 LUAI_FUNC void luaE_incCstack (lua_State *L) {
   L->nCcalls++;
   if (l_unlikely(getCcalls(L) >= LUAI_MAXCCALLS))
@@ -148,6 +159,8 @@ LUAI_FUNC void luaE_incCstack (lua_State *L) {
 }
 
 
+// AI: Resets a thread to a base C frame: function slot at the stack bottom,
+// AI: top at func + 1 + LUA_MINSTACK, callstatus CIST_C and status LUA_OK.
 static void resetCI (lua_State *L) {
   CallInfo *ci = L->ci = &L->base_ci;
   ci->func.p = L->stack.p;
@@ -160,6 +173,8 @@ static void resetCI (lua_State *L) {
 }
 
 
+// AI: Allocates the initial Lua stack (BASIC_STACK_SIZE + EXTRA_STACK slots,
+// AI: all niled), then sets up the base CallInfo, 'tbclist' and 'top'.
 static void stack_init (lua_State *L1, lua_State *L) {
   int i;
   /* initialize stack array */
@@ -174,6 +189,8 @@ static void stack_init (lua_State *L1, lua_State *L) {
 }
 
 
+// AI: Frees a thread's CallInfo list and stack array; 'stack.p' may be NULL
+// AI: for a thread whose stack was never initialized.
 static void freestack (lua_State *L) {
   if (L->stack.p == NULL)
     return;  /* stack not completely built yet */
@@ -188,6 +205,8 @@ static void freestack (lua_State *L) {
 /*
 ** Create registry table and its predefined values
 */
+// AI: Creates the registry table with predefined entries: index 1 = false,
+// AI: LUA_RIDX_MAINTHREAD = this thread, LUA_RIDX_GLOBALS = new globals table.
 static void init_registry (lua_State *L, global_State *g) {
   /* create registry */
   TValue aux;
@@ -209,6 +228,9 @@ static void init_registry (lua_State *L, global_State *g) {
 /*
 ** open parts of the state that may cause memory-allocation errors.
 */
+// AI: Completes state construction in a protection frame (stack, registry,
+// AI: string/type-metamethod/lexer initialization); failure frees the partial
+// AI: state. Marks the state complete by setting g->nilvalue to nil.
 static void f_luaopen (lua_State *L, void *ud) {
   global_State *g = G(L);
   UNUSED(ud);
@@ -227,6 +249,8 @@ static void f_luaopen (lua_State *L, void *ud) {
 ** preinitialize a thread with consistent values without allocating
 ** any memory (to avoid errors)
 */
+// AI: Initializes a new thread's fields without allocating: back-points to
+// AI: global_State, empty stack/ci lists, status LUA_OK, isolated base_ci.
 static void preinit_thread (lua_State *L, global_State *g) {
   G(L) = g;
   L->stack.p = NULL;
@@ -248,6 +272,8 @@ static void preinit_thread (lua_State *L, global_State *g) {
 }
 
 
+// AI: Computes a thread's memory footprint (LX block + CallInfos + stack
+// AI: slots) for the garbage collector.
 lu_mem luaE_threadsize (lua_State *L) {
   lu_mem sz = cast(lu_mem, sizeof(LX))
             + cast_uint(L->nci) * sizeof(CallInfo);
@@ -257,6 +283,9 @@ lu_mem luaE_threadsize (lua_State *L) {
 }
 
 
+// AI: Tears down a state: closes upvalues, runs finalizers and collects all
+// AI: objects (for a complete state), then frees string table, stack and the
+// AI: global_State block itself.
 static void close_state (lua_State *L) {
   global_State *g = G(L);
   if (!completestate(g))  /* closing a partially built state? */
@@ -275,6 +304,8 @@ static void close_state (lua_State *L) {
 }
 
 
+// AI: Allocates a new coroutine, anchors it on the creator's stack, copies
+// AI: hooks and extra space from the main thread, and gives it its own stack.
 LUA_API lua_State *lua_newthread (lua_State *L) {
   global_State *g = G(L);
   GCObject *o;
@@ -302,6 +333,8 @@ LUA_API lua_State *lua_newthread (lua_State *L) {
 }
 
 
+// AI: Releases a thread: closes its open upvalues, frees stack and CallInfos,
+// AI: then frees the LX block itself.
 void luaE_freethread (lua_State *L, lua_State *L1) {
   LX *l = fromstate(L1);
   luaF_closeupval(L1, L1->stack.p);  /* close all upvalues */
@@ -312,6 +345,9 @@ void luaE_freethread (lua_State *L, lua_State *L1) {
 }
 
 
+// AI: Restores a thread to a clean, resumable state: resets the base frame,
+// AI: closes to-be-closed variables/upvalues (propagating 'status') and
+// AI: reallocates the stack to a minimal size.
 TStatus luaE_resetthread (lua_State *L, TStatus status) {
   resetCI(L);
   if (status == LUA_YIELD)
@@ -326,6 +362,8 @@ TStatus luaE_resetthread (lua_State *L, TStatus status) {
 }
 
 
+// AI: API entry point that closes thread 'L' (resetting it); when 'L' is
+// AI: closing itself it also unwinds to the base level.
 LUA_API int lua_closethread (lua_State *L, lua_State *from) {
   TStatus status;
   lua_lock(L);
@@ -338,6 +376,9 @@ LUA_API int lua_closethread (lua_State *L, lua_State *from) {
 }
 
 
+// AI: Creates a whole Lua state: allocates global_State via the allocator,
+// AI: wires the main thread as the first GC object, configures GC parameters,
+// AI: then runs f_luaopen protected (freeing the partial state on failure).
 LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud, unsigned seed) {
   int i;
   lua_State *L;
@@ -393,6 +434,8 @@ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud, unsigned seed) {
 }
 
 
+// AI: API entry point: only the main thread may be closed; delegates the
+// AI: actual teardown to close_state.
 LUA_API void lua_close (lua_State *L) {
   lua_lock(L);
   L = mainthread(G(L));  /* only the main thread can be closed */
@@ -400,6 +443,8 @@ LUA_API void lua_close (lua_State *L) {
 }
 
 
+// AI: Forwards a warning message to the state's warning function, if any;
+// AI: 'tocont' marks a multi-part message to be continued.
 void luaE_warning (lua_State *L, const char *msg, int tocont) {
   lua_WarnFunction wf = G(L)->warnf;
   if (wf != NULL)
@@ -410,6 +455,8 @@ void luaE_warning (lua_State *L, const char *msg, int tocont) {
 /*
 ** Generate a warning from an error message
 */
+// AI: Emits the "error in <where> (<msg>)" warning for the error object on
+// AI: top of the stack.
 void luaE_warnerror (lua_State *L, const char *where) {
   TValue *errobj = s2v(L->top.p - 1);  /* error object */
   const char *msg = (ttisstring(errobj))

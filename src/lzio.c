@@ -21,6 +21,7 @@
 #include "lzio.h"
 
 
+// AI: Refills the buffer via the reader (called when 'n' hits 0); returns the first byte or EOZ (-1) at end of stream.
 int luaZ_fill (ZIO *z) {
   size_t size;
   lua_State *L = z->L;
@@ -36,6 +37,7 @@ int luaZ_fill (ZIO *z) {
 }
 
 
+// AI: Initializes a buffered stream with its reader and reader data; the buffer starts empty.
 void luaZ_init (lua_State *L, ZIO *z, lua_Reader reader, void *data) {
   z->L = L;
   z->reader = reader;
@@ -47,11 +49,13 @@ void luaZ_init (lua_State *L, ZIO *z, lua_Reader reader, void *data) {
 
 /* --------------------------------------------------------------- read --- */
 
+// AI: Ensures at least one unread byte is buffered, refilling if needed; returns 0 at end of stream.
 static int checkbuffer (ZIO *z) {
   if (z->n == 0) {  /* no bytes in buffer? */
     if (luaZ_fill(z) == EOZ)  /* try to read more */
       return 0;  /* no more input */
     else {
+      // AI: luaZ_fill already consumed one byte; restore it so the stream reads uniformly elsewhere.
       z->n++;  /* luaZ_fill consumed first byte; put it back */
       z->p--;
     }
@@ -60,6 +64,7 @@ static int checkbuffer (ZIO *z) {
 }
 
 
+// AI: Copies up to 'n' bytes to 'b', crossing buffer refills as needed; returns bytes still missing (0 if all read).
 size_t luaZ_read (ZIO *z, void *b, size_t n) {
   while (n) {
     size_t m;
@@ -76,6 +81,7 @@ size_t luaZ_read (ZIO *z, void *b, size_t n) {
 }
 
 
+// AI: Returns a pointer to the next 'n' buffered bytes without copying; NULL if they are not all in the current buffer.
 const void *luaZ_getaddr (ZIO* z, size_t n) {
   const void *res;
   if (!checkbuffer(z))

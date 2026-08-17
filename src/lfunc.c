@@ -24,6 +24,8 @@
 
 
 
+// AI: Allocates a C closure with 'nupvals' upvalue slots (left uninitialized;
+// AI: the caller fills them).
 CClosure *luaF_newCclosure (lua_State *L, int nupvals) {
   GCObject *o = luaC_newobj(L, LUA_VCCL, sizeCclosure(nupvals));
   CClosure *c = gco2ccl(o);
@@ -32,6 +34,8 @@ CClosure *luaF_newCclosure (lua_State *L, int nupvals) {
 }
 
 
+// AI: Allocates a Lua closure with 'nupvals' upvalue pointers (all NULL for
+// AI: now) and a NULL Proto; the compiler sets 'p' later.
 LClosure *luaF_newLclosure (lua_State *L, int nupvals) {
   GCObject *o = luaC_newobj(L, LUA_VLCL, sizeLclosure(nupvals));
   LClosure *c = gco2lcl(o);
@@ -45,6 +49,8 @@ LClosure *luaF_newLclosure (lua_State *L, int nupvals) {
 /*
 ** fill a closure with new closed upvalues
 */
+// AI: Gives a Lua closure fresh closed upvalues (each holding nil) and
+// AI: registers a write barrier so the collector sees the new UpVal objects.
 void luaF_initupvals (lua_State *L, LClosure *cl) {
   int i;
   for (i = 0; i < cl->nupvalues; i++) {
@@ -62,6 +68,9 @@ void luaF_initupvals (lua_State *L, LClosure *cl) {
 ** Create a new upvalue at the given level, and link it to the list of
 ** open upvalues of 'L' after entry 'prev'.
 **/
+// AI: Creates an open upvalue whose value lives in stack slot 'level', links
+// AI: it into the thread's open-upvalue list after 'prev' and registers the
+// AI: thread in G->twups (list of threads with open upvalues) if needed.
 static UpVal *newupval (lua_State *L, StkId level, UpVal **prev) {
   GCObject *o = luaC_newobj(L, LUA_VUPVAL, sizeof(UpVal));
   UpVal *uv = gco2upv(o);
@@ -84,6 +93,8 @@ static UpVal *newupval (lua_State *L, StkId level, UpVal **prev) {
 ** Find and reuse, or create if it does not exist, an upvalue
 ** at the given level.
 */
+// AI: Reuses the open upvalue for stack slot 'level' (the list is kept sorted
+// AI: by decreasing stack address), or creates a new one there if absent.
 UpVal *luaF_findupval (lua_State *L, StkId level) {
   UpVal **pp = &L->openupval;
   UpVal *p;
@@ -104,6 +115,8 @@ UpVal *luaF_findupval (lua_State *L, StkId level) {
 ** boolean 'yy' controls whether the call is yieldable.
 ** (This function assumes EXTRA_STACK.)
 */
+// AI: Calls the __close metamethod of 'obj' passing an optional error object
+// AI: as second argument; 'yy' selects a yieldable vs non-yieldable call.
 static void callclosemethod (lua_State *L, TValue *obj, TValue *err, int yy) {
   StkId top = L->top.p;
   StkId func = top;
@@ -124,6 +137,8 @@ static void callclosemethod (lua_State *L, TValue *obj, TValue *err, int yy) {
 ** Check whether object at given level has a close metamethod and raise
 ** an error if not.
 */
+// AI: Verifies the value at 'level' has a __close metamethod, raising an
+// AI: error naming the offending variable otherwise.
 static void checkclosemth (lua_State *L, StkId level) {
   const TValue *tm = luaT_gettmbyobj(L, s2v(level), TM_CLOSE);
   if (ttisnil(tm)) {  /* no metamethod? */
@@ -142,6 +157,8 @@ static void checkclosemth (lua_State *L, StkId level) {
 ** the 'level' of the upvalue being closed, as everything after that
 ** won't be used again.
 */
+// AI: Positions the to-be-closed value (and, for error statuses, the error
+// AI: object after it) on the stack and invokes the closing method.
 static void prepcallclosemth (lua_State *L, StkId level, TStatus status,
                                             int yy) {
   TValue *uv = s2v(level);  /* value being closed */
@@ -169,6 +186,9 @@ static void prepcallclosemth (lua_State *L, StkId level, TStatus status,
 /*
 ** Insert a variable in the list of to-be-closed variables.
 */
+// AI: Registers stack slot 'level' as a to-be-closed variable (unless false),
+// AI: inserting dummy nodes when the distance from the previous entry exceeds
+// AI: MAXDELTA (an unsigned-short delta cannot represent larger gaps).
 void luaF_newtbcupval (lua_State *L, StkId level) {
   lua_assert(level > L->tbclist.p);
   if (l_isfalse(s2v(level)))
@@ -183,6 +203,8 @@ void luaF_newtbcupval (lua_State *L, StkId level) {
 }
 
 
+// AI: Removes an open upvalue from the thread's doubly linked open-upvalue
+// AI: list.
 void luaF_unlinkupval (UpVal *uv) {
   lua_assert(upisopen(uv));
   *uv->u.open.previous = uv->u.open.next;
@@ -194,6 +216,9 @@ void luaF_unlinkupval (UpVal *uv) {
 /*
 ** Close all upvalues up to the given stack level.
 */
+// AI: Closes every open upvalue at or above 'level': the value is moved into
+// AI: the upvalue's own slot and the upvalue becomes closed (black, so no GC
+// AI: barrier needed later).
 void luaF_closeupval (lua_State *L, StkId level) {
   UpVal *uv;
   while ((uv = L->openupval) != NULL && uplevel(uv) >= level) {
@@ -213,6 +238,8 @@ void luaF_closeupval (lua_State *L, StkId level) {
 /*
 ** Remove first element from the tbclist plus its dummy nodes.
 */
+// AI: Removes the first to-be-closed variable from the list, also skipping
+// AI: any dummy nodes (delta == 0) that preceded it.
 static void poptbclist (lua_State *L) {
   StkId tbc = L->tbclist.p;
   lua_assert(tbc->tbclist.delta > 0);  /* first element cannot be dummy */
@@ -227,6 +254,9 @@ static void poptbclist (lua_State *L) {
 ** Close all upvalues and to-be-closed variables up to the given stack
 ** level. Return restored 'level'.
 */
+// AI: Closes all upvalues and to-be-closed variables down to 'level',
+// AI: invoking the appropriate closing methods; returns the stack-relative
+// AI: (possibly shifted) level.
 StkId luaF_close (lua_State *L, StkId level, TStatus status, int yy) {
   ptrdiff_t levelrel = savestack(L, level);
   luaF_closeupval(L, level);  /* first, close the upvalues */
@@ -240,6 +270,8 @@ StkId luaF_close (lua_State *L, StkId level, TStatus status, int yy) {
 }
 
 
+// AI: Allocates an empty Proto with all arrays NULL/zeroed, ready for the
+// AI: compiler to fill in.
 Proto *luaF_newproto (lua_State *L) {
   GCObject *o = luaC_newobj(L, LUA_VPROTO, sizeof(Proto));
   Proto *f = gco2p(o);
@@ -267,6 +299,8 @@ Proto *luaF_newproto (lua_State *L) {
 }
 
 
+// AI: Computes a Proto's total memory footprint (header plus all arrays) for
+// AI: the GC; code/line arrays of PF_FIXED prototypes live in fixed memory.
 lu_mem luaF_protosize (Proto *p) {
   lu_mem sz = cast(lu_mem, sizeof(Proto))
             + cast_uint(p->sizep) * sizeof(Proto*)
@@ -282,6 +316,8 @@ lu_mem luaF_protosize (Proto *p) {
 }
 
 
+// AI: Frees a Proto and all its arrays; PF_FIXED prototypes skip their
+// AI: code/line arrays, which are owned by fixed memory.
 void luaF_freeproto (lua_State *L, Proto *f) {
   if (!(f->flag & PF_FIXED)) {
     luaM_freearray(L, f->code, cast_sizet(f->sizecode));
@@ -300,6 +336,8 @@ void luaF_freeproto (lua_State *L, Proto *f) {
 ** Look for n-th local variable at line 'line' in function 'func'.
 ** Returns NULL if not found.
 */
+// AI: Returns the name of the 'local_number'-th (1-based) local variable that
+// AI: is active at program point 'pc', or NULL if there is no such variable.
 const char *luaF_getlocalname (const Proto *f, int local_number, int pc) {
   int i;
   for (i = 0; i<f->sizelocvars && f->locvars[i].startpc <= pc; i++) {

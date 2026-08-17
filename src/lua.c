@@ -46,6 +46,8 @@ static const char *progname = LUA_PROGNAME;
 
 #if defined(LUA_USE_POSIX)   /* { */
 
+// AI: Installs a signal handler with POSIX 'sigaction', with no signal masked.
+
 /*
 ** Use 'sigaction' when available.
 */
@@ -64,6 +66,8 @@ static void setsignal (int sig, void (*handler)(int)) {
 #endif                               /* } */
 
 
+// AI: Hook armed by 'laction' to abort the running chunk with "interrupted!".
+
 /*
 ** Hook set by signal function to stop the interpreter.
 */
@@ -73,6 +77,8 @@ static void lstop (lua_State *L, lua_Debug *ar) {
   luaL_error(L, "interrupted!");
 }
 
+
+// AI: C signal handler; arms a Lua hook ('lstop') since a C signal cannot safely touch Lua state directly.
 
 /*
 ** Function to be called at a C signal. Because a C signal cannot
@@ -87,6 +93,7 @@ static void laction (int i) {
 }
 
 
+// AI: Reports a bad option ('-e'/'-l' missing argument vs unrecognized) and prints the usage summary to stderr.
 static void print_usage (const char *badoption) {
   lua_writestringerror("%s: ", progname);
   if (badoption[1] == 'e' || badoption[1] == 'l')
@@ -110,6 +117,8 @@ static void print_usage (const char *badoption) {
 }
 
 
+// AI: Writes '[pname:] msg' to stderr; shared by all error reporting.
+
 /*
 ** Prints an error message, adding the program name in front of it
 ** (if present)
@@ -119,6 +128,8 @@ static void l_message (const char *pname, const char *msg) {
   lua_writestringerror("%s\n", msg);
 }
 
+
+// AI: If 'status' != LUA_OK, prints and pops the error on the stack top; always returns 'status'.
 
 /*
 ** Check whether 'status' is not OK and, if so, prints the error
@@ -135,6 +146,8 @@ static int report (lua_State *L, int status) {
   return status;
 }
 
+
+// AI: Protected-call error handler: stringifies the error object and appends a standard traceback.
 
 /*
 ** Message handler used to run all chunks
@@ -154,6 +167,8 @@ static int msghandler (lua_State *L) {
 }
 
 
+// AI: Runs lua_pcall with 'msghandler' placed under the args and a temporary SIGINT hook ('laction').
+
 /*
 ** Interface to 'lua_pcall', which sets appropriate message function
 ** and C-signal handler. Used to run all chunks.
@@ -172,11 +187,14 @@ static int docall (lua_State *L, int narg, int nres) {
 }
 
 
+// AI: Prints the LUA_COPYRIGHT banner line.
 static void print_version (void) {
   lua_writestring(LUA_COPYRIGHT, strlen(LUA_COPYRIGHT));
   lua_writeline();
 }
 
+
+// AI: Builds the global 'arg' table; index 0 is the script name, script args are positive, pre-script ones negative.
 
 /*
 ** Create the 'arg' table, which stores all arguments from the
@@ -200,21 +218,26 @@ static void createargtable (lua_State *L, char **argv, int argc, int script) {
 }
 
 
+// AI: Calls docall when the load succeeded, then reports any error; returns the final status.
 static int dochunk (lua_State *L, int status) {
   if (status == LUA_OK) status = docall(L, 0, 0);
   return report(L, status);
 }
 
 
+// AI: Loads a file (binary or text) and runs it as a chunk.
 static int dofile (lua_State *L, const char *name) {
   return dochunk(L, luaL_loadfilex(L, name, "bt"));
 }
 
 
+// AI: Loads a string as a text chunk and runs it (used for '-e' and LUA_INIT).
 static int dostring (lua_State *L, const char *s, const char *name) {
   return dochunk(L, luaL_loadbufferx(L, s, strlen(s), name, "t"));
 }
 
+
+// AI: Runs 'require(modname)' and assigns the result to global 'globname', honoring 'globname=modname' and version-suffix forms.
 
 /*
 ** Receives 'globname[=modname]' and runs 'globname = require(modname)'.
@@ -245,6 +268,8 @@ static int dolibrary (lua_State *L, char *globname) {
 }
 
 
+// AI: Pushes all values of the global 'arg' table (indices 1..#arg) and returns their count.
+
 /*
 ** Push on the stack the contents of table 'arg' from 1 to #arg
 */
@@ -261,6 +286,7 @@ static int pushargs (lua_State *L) {
 }
 
 
+// AI: Loads the main script ('-' means stdin unless it followed '--'), pushes script args, and runs it.
 static int handle_script (lua_State *L, char **argv) {
   int status;
   const char *fname = argv[0];
@@ -282,6 +308,8 @@ static int handle_script (lua_State *L, char **argv) {
 #define has_e		8	/* -e */
 #define has_E		16	/* -E */
 
+
+// AI: Scans options into a bitmask of needed actions ('has_*') or returns 'has_error'; 'first' gets the script index.
 
 /*
 ** Traverses all arguments from 'argv', returning a mask with those
@@ -309,6 +337,7 @@ static int collectargs (char **argv, int *first) {
       case '-':  /* '--' */
         if (argv[i][2] != '\0')  /* extra characters after '--'? */
           return has_error;  /* invalid option */
+        // AI: '--' ends option handling; any following argv is the script name.
         /* if there is a script name, it comes after '--' */
         *first = (argv[i + 1] != NULL) ? i + 1 : 0;
         return args;
@@ -348,6 +377,8 @@ static int collectargs (char **argv, int *first) {
 }
 
 
+// AI: Executes earlier -e/-l options and enables -W warnings; returns 0 if any executed code errors.
+
 /*
 ** Processes options 'e' and 'l', which involve running Lua code, and
 ** 'W', which also affects the state.
@@ -382,6 +413,8 @@ static int runargs (lua_State *L, char **argv, int n) {
 
 static char *(*l_getenv)(const char *name);
 
+// AI: getenv stand-in for -E: always returns NULL so environment variables are ignored.
+
 /* Function to ignore environment variables, used by option -E */
 static char *no_getenv (const char *name) {
   UNUSED(name);
@@ -389,6 +422,7 @@ static char *no_getenv (const char *name) {
 }
 
 
+// AI: Runs the LUA_INIT_<version> (or LUA_INIT) environment value: '@file' loads a file, otherwise a chunk string.
 static int handle_luainit (lua_State *L) {
   const char *name = "=" LUA_INITVARVERSION;
   const char *init = l_getenv(name + 1);
@@ -546,6 +580,8 @@ static void lua_initreadline (lua_State *L) {
 #endif				/* } */
 
 
+// AI: Returns the REPL prompt string from _PROMPT/_PROMPT2 (or the default), kept anchored on the stack.
+
 /*
 ** Return the string to be used as a prompt by the interpreter. Leave
 ** the string (or nil, if using the default value) on the stack, to keep
@@ -566,6 +602,8 @@ static const char *get_prompt (lua_State *L, int firstline) {
 #define marklen		(sizeof(EOFMARK)/sizeof(char) - 1)
 
 
+// AI: True for a syntax error whose message ends in "<eof>" (an incomplete statement).
+
 /*
 ** Check whether 'status' signals a syntax error and the error
 ** message at the top of the stack ends with the above mark for
@@ -581,6 +619,8 @@ static int incomplete (lua_State *L, int status) {
   return 0;  /* else... */
 }
 
+
+// AI: Shows a prompt, reads a line, strips its trailing newline, and pushes it; returns 0 on no input.
 
 /*
 ** Prompt the user, read a line, and push it into the Lua stack.
@@ -602,6 +642,8 @@ static int pushline (lua_State *L, int firstline) {
 }
 
 
+// AI: Tries compiling the input line as an expression by prefixing 'return ' (the REPL expression shortcut).
+
 /*
 ** Try to compile line on the stack as 'return <line>;'; on return, stack
 ** has either compiled chunk or original line (if compilation failed).
@@ -618,6 +660,7 @@ static int addreturn (lua_State *L) {
 }
 
 
+// AI: Warns when a line starts with 'local', which does not persist across REPL lines.
 static void checklocal (const char *line) {
   static const size_t szloc = sizeof("local") - 1;
   static const char space[] = " \t";
@@ -629,6 +672,8 @@ static void checklocal (const char *line) {
   }
 }
 
+
+// AI: Appends continuation lines until the accumulated text compiles or a non-incomplete error occurs.
 
 /*
 ** Read multiple lines until a complete Lua statement or an error not
@@ -651,6 +696,8 @@ static int multiline (lua_State *L) {
   }
 }
 
+
+// AI: One REPL input cycle: read a line, try 'return <line>' then a statement (with continuations); returns -1 on EOF.
 
 /*
 ** Read a line and try to load (compile) it first as an expression (by
@@ -675,6 +722,8 @@ static int loadline (lua_State *L) {
 }
 
 
+// AI: Calls Lua's 'print' over every value on the stack to display REPL results.
+
 /*
 ** Prints (calling the Lua 'print' function) any values on the stack
 */
@@ -690,6 +739,8 @@ static void l_print (lua_State *L) {
   }
 }
 
+
+// AI: The read-eval-print loop: loadline -> docall -> print results until EOF; suppresses progname in errors.
 
 /*
 ** Do the REPL: repeatedly read (load) a line, evaluate (call) it, and
@@ -723,6 +774,8 @@ static void doREPL (lua_State *L) {
 #endif
 #endif
 
+
+// AI: Protected-mode main: parses args, opens libraries, runs LUA_INIT, -e/-l options, the script, then REPL/stdin.
 
 /*
 ** Main body of stand-alone interpreter (to be called in protected mode).
@@ -774,6 +827,7 @@ static int pmain (lua_State *L) {
 }
 
 
+// AI: Creates a state with GC stopped, calls pmain in protected mode, and returns success only if pmain reported no error.
 int main (int argc, char **argv) {
   int status, result;
   lua_State *L = luaL_newstate();  /* create state */
