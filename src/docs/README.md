@@ -10,6 +10,13 @@ plus the standard libraries, C embedding API, and two CLI front-ends (`lua` and 
 
 ---
 
+**[Read the full architecture document → architecture.md](architecture.md)**
+(covers data representation, compilation pipeline, bytecode format, VM internals, garbage
+collection, metamethods, C API, coroutines, debug hooks, and all standard libraries in
+~900 lines)
+
+---
+
 ## Architecture Overview
 
 A Lua program goes through these stages:
