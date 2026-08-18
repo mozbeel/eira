@@ -1,10 +1,49 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Token {
     Identifier(String),
     Keyword(Keyword),
+    String(String),
+    MultilineString(String),
+    Number(String),
+    Comment(String),
+
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Modulo,
+    Caret,
+    Hash,
+    And,
+    Tilde,
+    Or,
+    ShiftLeft,
+    ShiftRight,
+    DoubleSlash,
+    DoubleEq,
+    TildeEq,
+    SmallerEq,
+    GreaterEq,
+    Smaller,
+    Greater,
+    Eq,
+    ParenthOpen,
+    ParenthClosed,
+    CurlyBracketOpen,
+    CurlyBracketClosed,
+    SqBracketOpen,
+    SqBracketClosed,
+    DoubleColon,
+    SemiColon,
+    Colon,
+    Comma,
+    Dot,
+    DoubleDot,
+    TripleDot,
+    Underscore,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Keyword {
     And,
     Break,
