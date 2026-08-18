@@ -1,6 +1,7 @@
-use crate::{error_handling::Error, init::Init};
+use crate::{error_handling::Error, init::Init, lexer::Lexer};
 
 mod init;
+mod lexer;
 mod error_handling;
 
 pub fn run() {
@@ -11,6 +12,7 @@ pub fn run() {
 
 fn prun() -> Result<(), Error> {
     let init = Init::new().run()?;
+    let lexer = Lexer::new(&init).run()?;
 
     Ok(())
 }
