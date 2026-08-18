@@ -12,38 +12,38 @@ pub fn build(b: *std.Build) void {
 
     lib_mod.addCSourceFiles(.{
         .files = &[_][]const u8{
-            "src/lapi.c",
-            "src/lcode.c",
-            "src/lctype.c",
-            "src/ldebug.c",
-            "src/ldo.c",
-            "src/ldump.c",
-            "src/lfunc.c",
-            "src/lgc.c",
-            "src/llex.c",
-            "src/lmem.c",
-            "src/lobject.c",
-            "src/lopcodes.c",
-            "src/lparser.c",
-            "src/lstate.c",
-            "src/lstring.c",
-            "src/ltable.c",
-            "src/ltm.c",
-            "src/lundump.c",
-            "src/lvm.c",
-            "src/lzio.c",
-            "src/lauxlib.c",
-            "src/lbaselib.c",
-            "src/lcorolib.c",
-            "src/ldblib.c",
-            "src/liolib.c",
-            "src/lmathlib.c",
-            "src/loadlib.c",
-            "src/loslib.c",
-            "src/lstrlib.c",
-            "src/ltablib.c",
-            "src/lutf8lib.c",
-            "src/linit.c",
+            "src/c/lapi.c",
+            "src/c/lcode.c",
+            "src/c/lctype.c",
+            "src/c/ldebug.c",
+            "src/c/ldo.c",
+            "src/c/ldump.c",
+            "src/c/lfunc.c",
+            "src/c/lgc.c",
+            "src/c/llex.c",
+            "src/c/lmem.c",
+            "src/c/lobject.c",
+            "src/c/lopcodes.c",
+            "src/c/lparser.c",
+            "src/c/lstate.c",
+            "src/c/lstring.c",
+            "src/c/ltable.c",
+            "src/c/ltm.c",
+            "src/c/lundump.c",
+            "src/c/lvm.c",
+            "src/c/lzio.c",
+            "src/c/lauxlib.c",
+            "src/c/lbaselib.c",
+            "src/c/lcorolib.c",
+            "src/c/ldblib.c",
+            "src/c/liolib.c",
+            "src/c/lmathlib.c",
+            "src/c/loadlib.c",
+            "src/c/loslib.c",
+            "src/c/lstrlib.c",
+            "src/c/ltablib.c",
+            "src/c/lutf8lib.c",
+            "src/c/linit.c",
         },
     });
 
@@ -61,9 +61,9 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
 
-    lua_mod.addIncludePath(b.path("src"));
+    lua_mod.addIncludePath(b.path("src/c"));
     lua_mod.addCSourceFile(.{
-        .file = b.path("src/lua.c"),
+        .file = b.path("src/c/lua.c"),
     });
 
     lua_mod.linkLibrary(lib);
@@ -81,9 +81,9 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
 
-    luac_mod.addIncludePath(b.path("src"));
+    luac_mod.addIncludePath(b.path("src/c"));
     luac_mod.addCSourceFile(.{
-        .file = b.path("src/luac.c"),
+        .file = b.path("src/c/luac.c"),
     });
 
     lua_mod.linkLibrary(lib);

@@ -1,3 +1,7 @@
 .zig-*/
 zig-*/
 doc/
+
+# Added by cargo
+
+/target

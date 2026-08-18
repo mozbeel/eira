@@ -303,7 +303,7 @@ typedef union {
 
 
 /* Common type for all collectable objects */
-typedef struct GCObject {
+typedef struct GCO1bject {
   CommonHeader;
 } GCObject;
 
