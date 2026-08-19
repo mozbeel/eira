@@ -10,9 +10,12 @@ pub enum LexerError {
     #[error("Invalid Sequence")]
     InvalidSequence,
 
-    #[error("Missing Closing String Quote")]
-    ExpectedQuote,
+    #[error("Expected {0}")]
+    Expected(String),
 
-    #[error("Unexpected Dot")]
-    UnexpectedDot,
+    #[error("Unexpected {0}")]
+    Unexpected(String),
+
+    #[error("Invalid Amount of =, expected: {0}, got: {1}")]
+    InvalidEqSequence(usize, usize)
 }

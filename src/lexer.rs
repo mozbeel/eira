@@ -1,4 +1,4 @@
-use std::{convert::identity, iter::Peekable, str::Chars};
+use std::{convert::identity, iter::{self, Peekable}, os::windows::raw::SOCKET, ptr::eq, str::Chars, thread::AccessError};
 
 use crate::{init::Init, lexer::{error::LexerError, token::{Keyword, Token}}};
 
@@ -70,7 +70,7 @@ impl<'a> Lexer<'a> {
             Some(')') => self.skip(Some(Ok(Token::ParenthClosed))),
             Some('{') => self.skip(Some(Ok(Token::CurlyBracketOpen))),
             Some('}') => self.skip(Some(Ok(Token::CurlyBracketClosed))),
-            Some('[') => self.skip(Some(Ok(Token::SqBracketOpen))),
+            Some('[') => Some(self.lex_open_sq_bracket()),
             Some(']') => self.skip(Some(Ok(Token::SqBracketClosed))),
             Some(':') => Some(self.lex_sequence(&[
                 ("::", Token::DoubleColon),
@@ -125,7 +125,7 @@ impl<'a> Lexer<'a> {
                 self.next();
             } else if *char == '.' {
                 if dot_occured {
-                    return Err(LexerError::UnexpectedDot);
+                    return Err(LexerError::Unexpected(".".to_string()));
                 }
 
                 dot_occured = true;
@@ -222,18 +222,81 @@ impl<'a> Lexer<'a> {
 
         let mut string = String::new();
 
-        while !matches!(self.peek(), Some(_)) && *self.peek().unwrap() == string_terminator_char {
-            if let None = self.peek() {
-                return Err(LexerError::ExpectedQuote);
+        while let Some(char) = self.peek() {
+            if *char == string_terminator_char {
+                break;
             }
 
             string.push(*self.peek().unwrap());
             self.next();
         }
 
+        if self.peek().is_none() {
+            return Err(LexerError::Expected(string_terminator_char.to_string()));
+        }
+
         self.next(); // consume "
 
         Ok(Token::String(string))
+    }
+
+    fn lex_open_sq_bracket(&mut self) -> Result<Token, LexerError> {
+        self.next(); // consume [
+
+        if matches!(self.peek(), Some('[') | Some('=')) {
+            self.lex_multiline_string()
+        } else {
+            Ok(Token::SqBracketOpen)
+        }
+    }
+
+    fn lex_multiline_string(&mut self) -> Result<Token, LexerError> {
+        let expected_eq_count: usize = self.count_eq(); // amount of equal signs, or the delimeter of the multiline string, e.g.: [==[ ]==]
+
+        if matches!(self.peek(), Some('[')) {
+           self.next(); // consume ]
+        } else {
+            return Err(LexerError::Expected("[".to_string()));
+        }
+
+        let mut content = String::new();
+
+        while let Some(char) = self.peek().copied() {
+            if char != ']' {
+                content.push(char);
+                self.next();
+                continue;
+            }
+
+            // Potential closing delimeter: ]=..]
+            self.next(); // consume ]
+
+            let eq_count = self.count_eq(); // get all equal signs, can be 0
+
+            if eq_count == expected_eq_count && self.peek() == Some(&']') {
+                self.next(); // consume final ']'
+                return Ok(Token::MultilineString(content));
+            }
+
+            // It wasn't the closing delimiter, so put what we consumed
+            // back into the string
+            content.push(']');
+
+            content.extend(std::iter::repeat_n('=', eq_count));
+        }
+
+        Err(LexerError::ReachedEnd)
+    }
+
+    fn count_eq(&mut self) -> usize {
+        let mut eq_count: usize = 0; // amount of equal signs, or the delimeter of the multiline string, e.g.: [==[ ]==]
+
+        while matches!(self.peek(), Some('=')) {
+            eq_count += 1;
+            self.next();
+        }
+
+        eq_count
     }
 
     fn skip(&mut self, result: Option<Result<Token, LexerError>>) -> Option<Result<Token, LexerError>> {
