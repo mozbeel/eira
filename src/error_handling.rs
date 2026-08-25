@@ -1,4 +1,4 @@
-use crate::{init::error::InitError, lexer::error::LexerError};
+use crate::{init::error::InitError, lexer::error::LexerError, parser::{Parser, error::ParserError}};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -7,4 +7,7 @@ pub enum Error {
 
     #[error("lexing failed: {0}")]
     LexerError(#[from] LexerError),
+
+    #[error("parser failed: {0}")]
+    ParserError(#[from] ParserError),
 }

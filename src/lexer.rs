@@ -25,9 +25,6 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        println!("Tokens: {:#?}", self.tokens);
-
-
         Ok(self.tokens)
     }
 
