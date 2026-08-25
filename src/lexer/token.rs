@@ -43,6 +43,12 @@ pub enum Token {
     Underscore,
 }
 
+impl Token {
+    pub fn same_variant(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Keyword {
     And,
